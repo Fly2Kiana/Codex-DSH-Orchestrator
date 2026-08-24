@@ -37,7 +37,16 @@ dsh-Agentlink 名称因运行时兼容性和法律归属继续出现在标识符
 
 ## 安装
 
-安装前先准备环境：只需要 **Node.js 22+**、一个已支持的调用方（**Codex 或 Claude Code**）和可以正常运行的 **DSH CLI**。先在 DSH 中配置一次你希望使用的模型；除非某次委派显式请求受支持的语义档位，否则共享 bridge 会继承当前路由。
+安装前先准备环境：只需要 **Node.js 22+**、一个已支持的调用方（**Codex 或 Claude Code**）和可以正常运行的 **DSH CLI**。当前跨平台测试基线是 x64 Node.js 22 和 24；其他 Node.js 主版本和 ARM64 环境不在现有矩阵覆盖范围内。先在 DSH 中配置一次你希望使用的模型；除非某次委派显式请求受支持的语义档位，否则共享 bridge 会继承当前路由。
+
+### 可移植性与安装边界
+
+- 换到另一台机器时请重新 clone。不要直接复制单个 worktree 目录：其中的 `.git` 文件指向原始 clone 的 worktree 元数据。同一台机器上需要 worktree 时，请从源 clone 使用 `git worktree add` 创建。
+- 干净、可复现的 checkout 优先使用 `npm ci`；只有在明确要更新 lockfile 时才使用 `npm install`。
+- `npm run setup` 会把 Node.js 可执行文件和构建后的 bridge 入口的绝对路径写入调用方配置。请把 checkout 放在稳定的工具目录；移动目录、更换 Node.js 安装或切换 worktree 后，应重新构建并运行 setup，先审查已有条目，再在明确授权后使用 `--replace`。
+- Codex MCP 配置与 Codex skill 安装是两件事。`npm run setup` 只注册 MCP 入口，不会安装 `skill/codex-dsh-orchestrator/`。请通过平时的 Codex skill 安装流程单独安装并启用该 skill，然后确认它可被发现，再使用 `$codex-dsh-orchestrator`。Claude Code 的项目 skill 由下文的 Claude setup 单独管理。
+- `DSH_BRIDGE_HOME` 应位于可靠的本地文件系统。不要把旧 bridge home 复制到另一台机器；新机器请使用新的 home。DSH 对话历史归 DSH Web Host 所有，而 bridge 的任务映射、cursor 和 claim 不会自动迁移。
+- Windows `desktop-auto` 是显式选择的模式。它要求 DSH Desktop Host 已经运行，并满足受支持的 Windows 进程/loopback 发现前置条件；CI 只 mock 这些行为，不代表真实 Desktop 的安装或登录已验收。配置工具不会启动、关闭或登录 DSH Desktop。
 
 ### 让你的 AI agent 帮你安装
 
@@ -46,7 +55,7 @@ dsh-Agentlink 名称因运行时兼容性和法律归属继续出现在标识符
 ```text
 请从 https://github.com/Fly2Kiana/Codex-DSH-Orchestrator 安装 Codex-DSH-Orchestrator。
 先检查 Node.js 22+、DSH CLI 和我的 DSH Web Host，在我确认的目录中 clone；
-运行 npm install 和 npm test。Codex 使用 npm run setup -- --yes；Claude Code 使用
+运行 npm ci 和 npm run check。Codex 使用 npm run setup -- --yes，然后通过我平时的 Codex skill 流程单独安装并验收仓库提供的 skill；Claude Code 使用
 npm run setup:claude -- --yes --project /项目的绝对路径。
 Claude Code 会安装项目 MCP 入口和随仓库提供的项目 skill；只有在审查已有文件后再使用 --replace 和 --replace-skill。
 如果已经存在 dsh_agentlink 或旧版 dsh_collab 配置，先向我展示冲突，再决定是否使用 --replace。
@@ -73,7 +82,7 @@ Claude Code 会安装项目 MCP 入口和随仓库提供的项目 skill；只有
    ```bash
    git clone https://github.com/Fly2Kiana/Codex-DSH-Orchestrator.git
    cd Codex-DSH-Orchestrator
-   npm install
+   npm ci
    ```
 
 4. 配置你使用的调用方。
@@ -91,7 +100,7 @@ Claude Code 会安装项目 MCP 入口和随仓库提供的项目 skill；只有
    npm run setup -- --desktop-auto
    ```
 
-   Codex 向导会备份 TOML 配置，并以 `approval_mode = "prompt"` 安装 MCP 入口。静态模式仍要求 `dsh --version` 可用；`--desktop-auto` 可在 CLI 不在 `PATH` 时改由已运行的 Desktop Host capability 验证，并把缺少 package 版本作为兼容性警告报告。向导绝不会启动或关闭 DSH Desktop。已有 bridge 条目切换任一模式仍需先检查，再显式增加 `--replace`。重启 Codex 后，通过 `/mcp` 或 Codex 设置确认 `dsh_agentlink` 已连接。需要手动 TOML 配置时，参见[Codex MCP 手动配置](docs/manual-configuration.zh-CN.md)。
+   Codex 向导会备份 TOML 配置，并以 `approval_mode = "prompt"` 安装 MCP 入口，但不会安装 `skill/codex-dsh-orchestrator/`；请通过平时的 Codex skill 流程单独安装并确认它可被发现。静态模式仍要求 `dsh --version` 可用；`--desktop-auto` 可在 CLI 不在 `PATH` 时改由已运行的 Desktop Host capability 验证，并把缺少 package 版本作为兼容性警告报告。向导绝不会启动或关闭 DSH Desktop。已有 bridge 条目切换任一模式仍需先检查，再显式增加 `--replace`。重启 Codex 后，通过 `/mcp` 或 Codex 设置确认 `dsh_agentlink` 已连接。需要手动 TOML 配置时，参见[Codex MCP 手动配置](docs/manual-configuration.zh-CN.md)。
 
    Claude Code 2.1.199 或更高版本：
 
