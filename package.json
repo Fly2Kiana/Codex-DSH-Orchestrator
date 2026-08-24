@@ -1,6 +1,6 @@
 {
   "name": "dsh-agentlink",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.4",
   "private": true,
   "description": "Codex-first orchestration and MCP bridge for bounded collaboration with the official DeepSeek Harness Web Host, derived from dsh-Agentlink.",
   "license": "MIT",
