@@ -1,0 +1,7 @@
+interface:
+  display_name: "Codex DSH Orchestrator"
+  short_description: "Orchestrate safe Codex-to-DSH worker delegation"
+  default_prompt: "Use $codex-dsh-orchestrator to delegate suitable work to DSH and supervise it through final review."
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,205 @@
+# Codex-DSH-Orchestrator
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE) [![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-339933?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org/) [![DSH bridge](https://img.shields.io/badge/DSH-bridge-4B6BFB?style=flat-square)](https://www.deepseek.com/harness/en/)
+
+**English** | [简体中文](README.zh-CN.md)
+
+Codex-DSH-Orchestrator is a Codex-first orchestration layer and caller-side MCP bridge for bounded collaboration with DeepSeek Harness (DSH). It lets Codex delegate implementation, research, debugging, and long-log work to DSH, then observe, continue, or cancel those sessions without leaving the normal workflow. Claude Code remains supported through the shared caller integration layer; other callers are deliberately deferred until their host behavior can be verified.
+
+The shared bridge runtime in this repository is an independently maintained derivative of the upstream [dsh-Agentlink project](https://github.com/hootandy321/dsh-Agentlink). The project retains the upstream MIT license and copyright attribution and is not affiliated with or endorsed by DeepSeek, OpenAI, or the upstream maintainers.
+
+## Project boundary
+
+Codex-DSH-Orchestrator is a caller-side orchestration and MCP bridge project. It connects supported callers to an independently running DSH Web Host; it does not start, own, or authenticate that Host, and it never auto-approves DSH requests. It is not a DSH Cordis bundle.
+
+## Project components
+
+- skill/codex-dsh-orchestrator/ — the project-specific Codex orchestration skill and its agent metadata.
+- skill/codex-dsh/ — the shared Codex caller compatibility skill.
+- skill/claude-code-dsh/ — the retained Claude Code caller compatibility skill.
+- src/ — the shared caller-neutral MCP bridge runtime and setup tools.
+- test/ — local mock-host, safety, compatibility, and integration tests.
+- docs/project-overview.md — the detailed ownership and architecture map.
+
+The dsh-Agentlink name remains in runtime identifiers and upstream attribution for compatibility and legal clarity; it is not the public project title.
+
+## Caller support
+
+| Caller | Status | Setup or availability |
+|---|---|---|
+| Codex | ✅ Supported | `npm run setup` |
+| Claude Code | ✅ Supported | `npm run setup:claude -- --project /absolute/path/to/project` |
+| ZCode | ⏸ Deferred | First candidate when verified caller-expansion work resumes |
+| OpenCode | ⏳ Planned | Not available yet |
+| Workbuddy | ⏳ Planned | Not available yet |
+
+Only callers marked **Supported** have an installation path in this repository today. Planned entries are directions, not release commitments.
+
+## Installation
+
+Prepare the environment first: you need **Node.js 22+**, a supported caller (**Codex or Claude Code**), and a working **DSH CLI**. Configure your preferred model in DSH once; the shared bridge inherits that live route unless a delegate explicitly requests a supported semantic profile.
+
+### Install with your AI agent
+
+Send the following repository URL and prompt to Codex or another coding agent:
+
+```text
+Install Codex-DSH-Orchestrator from https://github.com/Fly2Kiana/Codex-DSH-Orchestrator.
+Check Node.js 22+, the DSH CLI, and my DSH Web Host first. Clone it into a location I approve,
+run npm install and npm test. For Codex, run npm run setup -- --yes. For Claude Code, run
+npm run setup:claude -- --yes --project /absolute/path/to/my/project.
+For Claude Code, let setup install the project MCP entry and shipped project skill; use --replace and --replace-skill only after reviewing existing files.
+If dsh_agentlink or the legacy dsh_collab entry already exists, show me the conflict before using --replace.
+Do not start or stop dsh web for me. Tell me when I need to reload the selected caller and approve project MCP trust.
+```
+
+### Manual installation
+
+1. Check the environment. DSH CLI `0.1.0-rc.6` is the current tested target.
+
+   ```bash
+   node --version
+   dsh --version
+   ```
+
+2. Start the official DSH Web Host in its own terminal.
+
+   ```bash
+   dsh web
+   ```
+
+3. Clone the repository and install its dependencies.
+
+   ```bash
+   git clone https://github.com/Fly2Kiana/Codex-DSH-Orchestrator.git
+   cd Codex-DSH-Orchestrator
+   npm install
+   ```
+
+4. Configure your caller.
+
+   For Codex:
+
+   ```bash
+   npm run setup
+   npm run doctor
+   ```
+
+   On Windows with DSH Desktop and its changing loopback port, select automatic discovery explicitly:
+
+   ```bash
+   npm run setup -- --desktop-auto
+   ```
+
+   The Codex wizard backs up the Codex TOML configuration and installs the MCP entry with `approval_mode = "prompt"`. Static setup keeps requiring `dsh --version`; `--desktop-auto` can instead validate the already-running Desktop Host even when the CLI is not on `PATH`, and reports the missing package version as a compatibility warning. It never starts or stops DSH Desktop. Switching an existing bridge entry to either mode still requires reviewing it and adding `--replace`. Restart Codex, then use `/mcp` or Codex Settings to confirm that `dsh_agentlink` is connected. For fully manual TOML setup, see [Manual Codex MCP configuration](docs/manual-configuration.md).
+
+   For Claude Code 2.1.199 or newer, point the setup command at the project that should share `.mcp.json`:
+
+   ```bash
+   npm run setup:claude -- --project /absolute/path/to/your/project
+   cd /absolute/path/to/your/project
+   claude mcp get dsh_agentlink
+   ```
+
+   The Claude setup edits only that project's `.mcp.json` and `.claude/skills/claude-code-dsh/SKILL.md`, and preserves unrelated servers. It reports each of these separately:
+
+   - MCP registration
+   - project trust
+   - Claude skill status
+   - Claude approval support
+   - DSH permission/sandbox ownership
+   - DSH Host reachability
+
+   Open Claude Code in the project and approve the pending server through `/mcp`; the bridge marks `dsh_resolve_approval` as requiring human interaction.
+
+   Add `--yes` for unattended defaults. To update an existing MCP entry, review it first and then add `--replace`; to update an existing Claude project skill, review it first and then add `--replace-skill`; to manage the skill yourself, add `--no-skill`. Both installers recognize the legacy `dsh_collab` entry and migrate it to `dsh_agentlink` only after explicit replacement approval. Neither installer starts DSH, changes DSH permission/sandbox settings, or restarts the caller.
+
+The doctor reports the bridge's fail-closed lock locations under `DSH_BRIDGE_HOME` read-only and never cleans them, so it is safe to run even when a lock is present.
+
+This source patch stops new projection/chunk floods from expanding the coordination ledger, but it does not compact an existing 5 MB+ ledger. Preserve the old bridge home for inspection; new delegations can use a separate `DSH_BRIDGE_HOME`. DSH `session.history`, not the bridge ledger, remains the conversation source of truth. See [Known issues](KNOWN_ISSUES.md) for the conservative recovery boundary.
+
+This bridge (runtime name `dsh_agentlink`) is a caller-side plugin, not a DSH Cordis bundle. Do not install it with `dsh plugin --profile ... add ...`.
+
+## Why Codex-DSH-Orchestrator?
+
+### Use DSH's Harness capabilities
+
+DSH combines persistent sessions, tool execution, subagents, and human supervision for complex work. Codex-DSH-Orchestrator lets your primary caller—currently Codex or Claude Code—discuss and coordinate with that second harness while you stay in the same workflow.
+
+### More than another native subagent
+
+A native subagent remains inside the caller's own agent tree. The shared bridge adds a separate, user-configured harness: its sessions stay visible in DSH Web, can use DSH's own workers and model route, and can be observed, continued, or canceled by the primary caller.
+
+### Save time and cost
+
+- **Save time.** Route implementation, research, extraction, and long-log work to a fast model configured in DSH, such as a DeepSeek V4 route, while your primary agent keeps planning and validating.
+- **Save money.** Moving execution-heavy workloads to a lower-cost DeepSeek route can reduce consumption on more expensive primary models.
+
+Actual speed and cost depend on the selected model, provider, deployment, network, and task. Once installed, you can keep working in Codex or Claude Code as usual and simply ask it to delegate when DSH is the better execution path.
+
+## Use it
+
+Once `dsh web` is running and your caller has loaded and trusted the MCP configuration, ask Codex or Claude Code in normal language, for example:
+
+> Use Codex-DSH-Orchestrator to delegate this implementation to DSH in the current repository. Keep it visible in DSH Web, report progress, and ask me before any approval.
+
+The caller can then delegate the task, observe its event stream, continue the same session, answer questions with you, or cancel work. Open the configured DSH Web origin to inspect and interact with the same session. On Windows, an opt-in `DSH_HOST_MODE=desktop-auto` runtime can discover the verified loopback listener owned by DSH Desktop instead of relying on its changing ephemeral port; an explicit `DSH_HOST_URL` always wins.
+
+Before a new delegation, the caller builds a compact handoff in the prompt from already-known progress and read-only workspace evidence: objective, completed work, Git HEAD/status and changed paths when available, focus code/Markdown paths, relevant tests, constraints, and unresolved issues. It tells DSH to read the focus paths first and avoid a repository-wide scan unless blocked. The handoff excludes secrets, raw large diffs, file bodies, caller chat, and internal reasoning. This is guidance for the caller, not new filesystem authorization; dsh-Agentlink does not receive prior caller conversation state automatically. For the same known BridgeTask, the caller uses `dsh_followup`; if no matching task id is known, it starts a fresh delegation rather than guessing an old id.
+
+When the user explicitly identifies an existing DSH Desktop session, the caller can first use `dsh_find_sessions` to read bounded root-session metadata, then use `dsh_attach_session` with the exact returned session id and fresh metadata preconditions. Titles are discovery aids, never attachment identities. Attachment accepts only an idle root session, creates or reuses bridge-local mapping and workspace-claim state, and may reconcile history for supervision without returning or persisting conversation bodies. It does not create or rename a DSH session, send a prompt, or change model routing. A later `dsh_followup` carries the compact handoff when work should continue.
+
+Reusing a session across Codex tasks is a conservative three-way choice: `same-known-task`, `attached-existing-task`, or `new-session`. Reuse only the same known BridgeTask for the same workstream; for a new task with explicit continuation evidence, discover exactly one canonical-cwd, mapped, idle root through metadata-only `dsh_find_sessions` and attach with fresh preconditions before continuing with `dsh_followup`. Never reuse by title or similarity and never read history for discovery; fail closed on ambiguous, running, stale, missing-cwd, or mapping-conflict candidates. Reuse can save handoff and repository-reading work but can increase input tokens, so it is a cost optimization only while continuity remains relevant. Reuse and avoided rescans are not proof of provider prompt-cache hits or token discounts; provider cache evidence is not exposed unless DSH publishes documented aggregate usage telemetry.
+
+## MCP tools
+
+- `dsh_host_status` — connect-only Host state and capabilities
+- `dsh_find_sessions` — bounded metadata-only discovery of existing root sessions; no history or raw projections
+- `dsh_attach_session` — safely attach one exact idle root session using fresh id/title/cwd/update preconditions; no prompt or model change
+- `dsh_delegate` — create a root session and queue the initial prompt; optionally select `inherit|flash|pro|modlens-flash|modlens-pro` plus a catalog-supported `reasoningEffort`; detached by default (`waitSeconds=0`); `workspaceMode` is a bridge-local claim, not a DSH sandbox selector
+- `dsh_followup` — continue the same root session with explicit `mode="queue"|"steer"` (default `queue`); optionally select the same semantic model profiles and validated reasoning effort before the prompt
+- `dsh_continue` — compatibility alias for `dsh_followup`
+- `dsh_status` — availability, execution, lineage, queue, pending interactions, final message, cursors, and workspace claim semantics
+- `dsh_tail` — bounded event digests using a bridge task cursor
+- `dsh_wait` — wait up to 30 seconds for a durable event, state change, pending interaction, or terminal status
+- `dsh_observe` — compatibility alias around `dsh_wait`; bridge cursors replace raw session seq cursors
+- `dsh_cancel` — `scope="turn"|"queue"`
+- `dsh_list` — task mappings enriched with current derived status
+- `dsh_answer_question` — typed answer for a pending question rpcId
+- `dsh_resolve_approval` — typed `allow_once|reject` response for a pending approval rpcId
+- `dsh_release_workspace` — explicitly release a persistent bridge workspace claim without closing the DSH session
+
+Model routing is opt-in and backward-compatible for both delegation and follow-up. When `modelProfile` and `reasoningEffort` are omitted, the operation reads `session.models.current`, verifies `routable`, and does not call `session.selectModel`. The semantic mappings are `flash`/`pro` -> `deepseek-official/deepseek-v4-{flash,pro}` and `modlens-flash`/`modlens-pro` -> `deepseek-modlens/deepseek-v4-{flash,pro}`. The requested provider, model, and effort must exist in the live `session.models` catalog. Selection is performed and re-read before the initial or follow-up prompt; any mismatch fails closed without sending that prompt.
+
+An explicit user choice always wins. Without one, the primary caller may keep `inherit`, use Flash for routine search/implementation/test repair, use Pro for architecture or difficult multi-step debugging, and use the corresponding ModLens profile when visual evidence is essential. dsh-Agentlink transports text prompts only: include absolute local image paths that the DSH Host and ModLens tools can access; it does not upload image bytes. `selectionReason` provides an optional audit explanation and is not sent to DSH.
+
+On the locally verified DSH rc.6 collapsed Code Mode path, visual handoffs use the outer `run_code` transport and call registered `modlens_read_image` through the injected `tools` SDK inside that program. A caller should treat that outer event as expected, forbid shell/browser/OCR/image-library fallbacks, and wait for the nested result or an explicit nested/terminal error. A plugin's documented inner timeout is not the overall delegation deadline. This is version-scoped compatibility guidance; later Hosts should follow their verified live capability when it differs.
+
+**Important DSH rc.6 side effect:** `session.selectModel` also saves the selection as DSH's global default for later sessions. Delegate and follow-up results report `modelRouting.persistsAsDshDefault=true` and a warning whenever explicit selection occurs. Omit routing fields if that persistence is not acceptable. If selection verification fails after the write was attempted, no prompt is sent, but the requested selection may already be the global default.
+
+`dsh_wait` observes durable bridge state. Assistant delta/chunk frames and top-level `session/projection` snapshots are skipped, so they do not bump the task revision or wake waiters; complete final messages remain observable through status/tail after the turn ends.
+
+## Roadmap
+
+These are planned directions, not implemented capabilities or release commitments.
+
+1. **More caller entrypoints** — evaluate ZCode first when caller expansion resumes, then consider OpenCode, Workbuddy, Claude Desktop MCP, and other callers through the shared Integration Pack architecture.
+2. **Agent invocation and information transport** — improve prompt organization, context packaging, output digests, and compression while keeping questions, approvals, errors, and final answers reliable.
+3. **DSH plugin-aware sessions** — preserve the current `agentPreset` path for preset-based plugins, add read-only preset/capability validation and resolved-preset reporting, and introduce a declarative session launch profile only when a plugin proves it needs typed post-create initialization.
+4. **More integrations** — expand after the shared Runtime and caller compatibility contract stabilize.
+
+## More documentation
+
+- [Project overview](docs/project-overview.md) — public identity, component ownership, and the Codex-first architecture
+- [Architecture and safety model](docs/architecture.md) — identity, state, recovery, approvals, cancellation, and workspace coordination
+- [Multi-caller extension architecture](docs/caller-integration-architecture.md) — shared Runtime and Integration Pack boundaries for Codex, Claude Code, and future callers
+- [Deferred roadmap](docs/deferred-roadmap.md) — deliberately postponed work, activation triggers, and preserved safety boundaries
+- [Validation guide](docs/validation.md) — compatibility and operator acceptance checks
+- [Known issues](KNOWN_ISSUES.md) — current upgrade and concurrency caveats
+- [Contributing](CONTRIBUTING.md) and [security](SECURITY.md)
+
+## License
+
+[MIT](LICENSE)
+
+Alpha note: DSH is still in developer preview and this community project is independent of DeepSeek and OpenAI. `0.1.0-alpha.1` contains a shared-ledger concurrency bug; it is fixed in `0.1.0-alpha.2`. Read [Known issues](KNOWN_ISSUES.md) before upgrading or running concurrent bridge processes.

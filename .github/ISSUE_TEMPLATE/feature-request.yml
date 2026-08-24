@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest a bounded improvement to Codex-DSH-Orchestrator
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Explain the user need and keep the proposal within the caller-side bridge boundary.
+        The project does not own the DSH Web Host lifecycle or automatically approve requests.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the workflow, limitation, or safety concern.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to change?
+      description: Describe a concrete proposal, including compatibility and safety considerations.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe other approaches or workarounds you considered.
+    validations:
+      required: false

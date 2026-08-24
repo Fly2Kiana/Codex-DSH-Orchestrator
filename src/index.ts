@@ -1,0 +1,57 @@
+#!/usr/bin/env node
+
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+
+import { BridgeService } from "./bridge-service.js";
+import { loadConfig } from "./config.js";
+import { DshConnectionManager } from "./connection-manager.js";
+import { DshClient } from "./dsh-client.js";
+import { EventLedger } from "./event-ledger.js";
+import { configuredHostLabel, createHostEndpointResolver } from "./host-endpoint.js";
+import { createMcpServer } from "./mcp-server.js";
+import { TaskStore } from "./task-store.js";
+
+async function main() {
+  const config = loadConfig();
+  const api = new DshClient(createHostEndpointResolver(config), config.requestTimeoutMs);
+  const tasks = new TaskStore(config.homeDir);
+  const ledger = new EventLedger(config.homeDir);
+  const connection = new DshConnectionManager(config, api, tasks, ledger);
+  const service = new BridgeService(config, api, tasks, connection, ledger);
+  const server = createMcpServer(service);
+  const transport = new StdioServerTransport();
+  let shutdownPromise: Promise<void> | undefined;
+
+  const shutdown = async () => {
+    shutdownPromise ??= (async () => {
+      await connection.stop().catch(() => undefined);
+      await server.close().catch(() => undefined);
+    })();
+    await shutdownPromise;
+  };
+
+  transport.onclose = () => {
+    void shutdown();
+  };
+  process.stdin.once("end", () => {
+    void shutdown();
+  });
+  process.stdin.once("close", () => {
+    void shutdown();
+  });
+  process.once("SIGINT", () => {
+    void shutdown();
+  });
+  process.once("SIGTERM", () => {
+    void shutdown();
+  });
+
+  connection.start();
+  await server.connect(transport);
+  console.error(`[dsh-agentlink] connect-only MCP ready; configured target ${configuredHostLabel(config)}`);
+}
+
+void main().catch((error) => {
+  console.error(`[dsh-agentlink] fatal: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
+  process.exitCode = 1;
+});

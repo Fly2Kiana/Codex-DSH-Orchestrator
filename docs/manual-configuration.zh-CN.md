@@ -1,0 +1,82 @@
+# 手动配置 Codex MCP
+
+[English](manual-configuration.md) | **简体中文**
+
+只有在配置向导无法修改 Codex 配置，或确实需要高级环境变量时，才需要使用这份文档。
+
+Codex 默认从 `~/.codex/config.toml` 读取 MCP server；如果你的环境已经通过 `$CODEX_HOME` 使用自定义 Codex home，则配置文件位于 `$CODEX_HOME/config.toml`。编辑前请先备份。应用、CLI 与 TOML 配置方式也可以参考官方 [Codex MCP 文档](https://developers.openai.com/codex/mcp)。
+
+## 构建并确认路径
+
+在仓库目录执行：
+
+```bash
+npm install
+npm run build
+command -v node
+pwd
+```
+
+下面的配置需要使用 Node.js 的绝对路径，并在仓库绝对路径后添加 `/dist/index.js`。
+
+## 添加 MCP server
+
+```toml
+[mcp_servers.dsh_agentlink]
+command = "/absolute/path/to/node"
+args = ["/absolute/path/to/dsh-Agentlink/dist/index.js"]
+
+[mcp_servers.dsh_agentlink.env]
+DSH_HOST_URL = "http://127.0.0.1:3080"
+DSH_HOST_VERSION = "0.1.0-rc.6"
+DSH_BRIDGE_AGENT_PRESET = "code"
+
+[mcp_servers.dsh_agentlink.tools.dsh_resolve_approval]
+approval_mode = "prompt"
+```
+
+Windows DSH Desktop 需要自动发现时，请用下面这一行替换上方的 `DSH_HOST_URL`，绝不要同时配置两者：
+
+```toml
+DSH_HOST_MODE = "desktop-auto"
+```
+
+对应的向导命令是 `npm run setup -- --desktop-auto`。更新已有 bridge 条目仍需先审查并显式批准 `--replace`。Desktop 模式可在 `dsh` 不在 `PATH` 时继续：setup 会省略 `DSH_HOST_VERSION`，对已运行的 Desktop Host 做 capability probe，并把 package 版本兼容性标记为未验证。
+
+请保留 `approval_mode = "prompt"`：DSH approval 可能允许 sandbox escalation，因此 `allow_once` 必须继续由人确认。
+
+修改后需要重启 Codex 桌面应用、重启 IDE extension，或退出并重新打开 CLI。随后通过 `/mcp` 或 Codex 设置确认 `dsh_agentlink` 已连接。
+
+如果旧版安装仍使用 `dsh_collab`，请勿同时保留两个入口。检查新配置后运行 `npm run setup -- --replace`；配置工具会移除旧表，只写入一个 `dsh_agentlink`，并保留其他 MCP server。
+
+## 环境变量
+
+- `DSH_HOST_URL` — 官方 Web Host origin；默认 `http://127.0.0.1:3080`
+- `DSH_HOST_MODE` — `static`（默认）或 Windows 上显式启用的 `desktop-auto`。后者只检查由精确 `DSH Desktop.exe` 进程拥有的 listener，仅接受 loopback，并通过 `host.describe` 验证候选；零个或多个有效 Host 都会拒绝继续。它不会扫描端口，也不会启动或关闭 Desktop。使用时应省略 `DSH_HOST_URL`；显式 URL 永远选择 `static` 模式。
+- `DSH_HOME` — 用于推导 bridge home 的 DSH home；默认 `~/.dsh`
+- `DSH_BRIDGE_HOME` — task mapping、workspace claim 与 coordination index 的目录覆盖值
+- `DSH_REQUEST_TIMEOUT_MS` — unary 请求与 WebSocket 连接超时；默认 30 秒
+- `DSH_BRIDGE_AGENT_PRESET` — 可选的已安装 DSH agent preset；省略时跟随 DSH 默认值。它选择的是 DSH agent composition，不是 workspace claim 或已验证的 sandbox 策略。
+- `DSH_BRIDGE_TIME_ZONE` — 用于人机提示的可选 IANA 时区
+- `DSH_HOST_VERSION` — 操作方可选声明的 DSH package 版本；不会从 `host.describe.version` 推断
+- `DSH_APPROVAL_TIMEOUT_MS` — 默认关闭；启用后，仅在当前 bridge 进程和连接仍存活时尝试一次 best-effort reject
+- `DSH_ALLOW_REMOTE_HOST=true` — 显式允许受信任的非 loopback Host
+
+委派和 follow-up 只接受语义档位 `inherit|flash|pro|modlens-flash|modlens-pro` 与实时 catalog 支持的 reasoning effort；任意 provider/model 字符串会被拒绝。省略路由时继承并验证 DSH 当前 route。显式选择可能持久化为 DSH 全局默认值。`workspaceMode` 只是 bridge-local cooperative claim，不会选择、执行或验证 DSH Host filesystem sandbox。
+
+## Host 与版本说明
+
+bridge 采用 connect-only 模式：它不会启动、守护、停止或拥有 `dsh web`。请自行启动 Host：
+
+```bash
+dsh web --host 127.0.0.1 --port 3080
+npm run doctor
+```
+
+当前经过测试的目标是 DSH CLI `0.1.0-rc.6`。在 rc.6 中，`host.describe.version` 会返回占位产品版本 `0.0.1`，它不是 CLI/package 版本。doctor 会分别检查 CLI 版本与 Host capability，并只读报告 `DSH_BRIDGE_HOME` 下的 fail-closed 锁位置（`claims/registry.lock` 与 `ledgers/<task>/events.lock`），从不清理它们。锁诊断只输出结构性的 presence/type 与有界的 `entriesObserved`/`entriesTruncated` 观察；绝不读取 `owner.json` 内容，也不报告 pid、token 或 `createdAt`。
+
+本次 ingestion 修复不会自动压缩已有的 5 MB 以上 ledger。请保留旧 bridge home 备查；如有需要，可为新的委派配置独立的 `DSH_BRIDGE_HOME`，但其中的 bridge task id、cursor 与 claim 会重新开始。DSH `session.history` 始终是权威对话记录。文档有意不提供自动清理 ledger 或锁的命令。
+
+rc.6 Web API 没有 auth token，因此 loopback-only 是安全默认值。远程 URL 必须是用户明确信任的部署，并同时设置 `DSH_ALLOW_REMOTE_HOST=true`。
+
+dsh-Agentlink 不是 DSH Cordis bundle，请不要使用 `dsh plugin --profile ... add ...` 安装。

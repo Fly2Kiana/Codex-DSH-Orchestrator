@@ -1,0 +1,41 @@
+name: Bug report
+description: Report a reproducible problem in the public source release
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Remove credentials, private paths, session transcripts, and raw bridge state before submitting.
+        Use SECURITY.md for vulnerability reports.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and the expected behavior.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS, Node.js version, caller, and DSH version.
+      placeholder: Windows 11, Node 22, Codex, DSH 0.1.x
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: List the smallest safe sequence that reproduces the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized diagnostics
+      description: Paste only redacted error messages or logs. Never include secrets or session content.
+      render: shell
+    validations:
+      required: false

@@ -1,0 +1,2 @@
+# Keep tracked text reproducible across Windows and Unix worktrees.
+* text=auto eol=lf

@@ -1,0 +1,78 @@
+{
+  "name": "dsh-agentlink",
+  "version": "0.1.0-alpha.2",
+  "private": true,
+  "description": "Codex-first orchestration and MCP bridge for bounded collaboration with the official DeepSeek Harness Web Host, derived from dsh-Agentlink.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Fly2Kiana/Codex-DSH-Orchestrator.git"
+  },
+  "homepage": "https://github.com/Fly2Kiana/Codex-DSH-Orchestrator",
+  "bugs": {
+    "url": "https://github.com/Fly2Kiana/Codex-DSH-Orchestrator/issues"
+  },
+  "keywords": [
+    "codex",
+    "claude-code",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "mcp",
+    "agent-link",
+    "agent-harness",
+    "agent-collaboration"
+  ],
+  "type": "module",
+  "files": [
+    "dist/",
+    "docs/architecture.md",
+    "docs/architecture.zh-CN.md",
+    "docs/caller-integration-architecture.md",
+    "docs/caller-integration-architecture.zh-CN.md",
+    "docs/deferred-roadmap.md",
+    "docs/deferred-roadmap.zh-CN.md",
+    "docs/manual-configuration.md",
+    "docs/manual-configuration.zh-CN.md",
+    "docs/release-checklist.md",
+    "docs/validation.md",
+    "skill/",
+    "README.md",
+    "README.zh-CN.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "KNOWN_ISSUES.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "bin": {
+    "dsh-agentlink": "dist/index.js",
+    "dsh-agentlink-doctor": "dist/doctor.js",
+    "dsh-agentlink-setup": "dist/setup-codex.js",
+    "dsh-agentlink-setup-claude": "dist/setup-claude-code.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "doctor": "tsx src/doctor.ts",
+    "setup": "npm run build && node dist/setup-codex.js",
+    "setup:claude": "npm run build && node dist/setup-claude-code.js",
+    "test": "node --import tsx --test test/**/*.test.ts",
+    "check": "npm run build && npm test",
+    "prepack": "npm run check"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.5",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3",
+    "ws": "^8.18.3"
+  }
+}
