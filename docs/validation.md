@@ -14,6 +14,17 @@ npm pack --dry-run
 
 The unit tests use mock DSH hosts. They cover bridge state, cursor recovery, event reduction, questions and approvals, cancellation, workspace claims, atomic existing-session attachment, process reconnection, and MCP schemas without requiring a live model route.
 
+## Fresh checkout and portability boundary
+
+- The reproducible clean-checkout sequence is `npm ci`, `npm run check`, and `npm pack --dry-run`. `npm install` is for intentional lockfile updates, not the normal validation path.
+- The current automated matrix covers x64 Ubuntu and Windows with Node.js 22 and 24. Node.js 22+ is the project floor, not evidence for every future major or ARM64 environment; use x64 Node.js 22 or 24 as the safest new-machine baseline.
+- Use a fresh clone on another machine. A single worktree must not be copied because its `.git` file points to worktree metadata in the source clone. On the same machine, create a new worktree from the source clone with `git worktree add`.
+- Setup records absolute paths to the Node.js executable and built bridge entry point in the caller configuration. Keep the checkout in a stable tools directory; after moving it, changing the Node.js installation, or switching worktrees, rebuild and run setup again, review the existing entry, and use `--replace` only after explicit approval.
+- Codex MCP setup is not Codex skill installation. `npm run setup` writes the MCP entry but does not install `skill/codex-dsh-orchestrator/`; install and verify that skill separately through the normal Codex skill workflow. Claude Code setup manages its project skill separately.
+- Keep `DSH_BRIDGE_HOME` on a reliable local filesystem. Do not copy an old bridge home across machines: use a fresh home and start new bridge mappings, cursors, and claims. DSH `session.history` remains owned by the Host and is not migrated by copying bridge state.
+- Windows `DSH_HOST_MODE=desktop-auto` is opt-in and requires an already-running DSH Desktop Host plus the supported Windows process and loopback discovery prerequisites. CI mocks those behaviors and does not constitute real Desktop installation, login, or plugin acceptance.
+- Release `v0.1.0-alpha.3` is a prerelease source release. Its clean-build CI and package dry-run evidence do not claim a fresh-machine Codex skill installation or a live DSH Desktop/login/plugin end-to-end acceptance. Those claims require a separately approved disposable run.
+
 ## Cross-task session reuse acceptance (mock)
 
 The repeatable mock checks must prove the reuse path without touching a live Host:

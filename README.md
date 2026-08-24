@@ -37,7 +37,16 @@ Only callers marked **Supported** have an installation path in this repository t
 
 ## Installation
 
-Prepare the environment first: you need **Node.js 22+**, a supported caller (**Codex or Claude Code**), and a working **DSH CLI**. Configure your preferred model in DSH once; the shared bridge inherits that live route unless a delegate explicitly requests a supported semantic profile.
+Prepare the environment first: you need **Node.js 22+**, a supported caller (**Codex or Claude Code**), and a working **DSH CLI**. The tested cross-platform baseline is x64 Node.js 22 and 24; other Node.js majors and ARM64 environments are not covered by the current matrix. Configure your preferred model in DSH once; the shared bridge inherits that live route unless a delegate explicitly requests a supported semantic profile.
+
+### Portability and installation boundaries
+
+- On another machine, use a fresh clone. Do not copy a single worktree directory: its `.git` file points to the source clone's worktree metadata. On the same machine, create worktrees from the source clone with `git worktree add`.
+- Prefer `npm ci` for a clean, reproducible checkout. Use `npm install` only when you intentionally want to update the lockfile.
+- `npm run setup` writes the absolute Node.js executable and built bridge entry point into the caller configuration. Keep the checkout in a stable tools directory; after moving it, changing the Node.js installation, or switching to another worktree, rebuild and run setup again, review the existing entry, and use `--replace` only with explicit approval.
+- Codex MCP setup and Codex skill installation are separate. `npm run setup` registers the MCP entry but does not install `skill/codex-dsh-orchestrator/`. Install and enable that skill through your normal Codex skill workflow, then verify that it is discoverable before relying on the `$codex-dsh-orchestrator` command. Claude Code setup manages its project skill separately as described below.
+- Keep `DSH_BRIDGE_HOME` on a reliable local filesystem. Do not copy an old bridge home to another machine; use a fresh home there. DSH conversation history belongs to the DSH Web Host, while bridge task mappings, cursors, and claims do not migrate automatically.
+- Windows `desktop-auto` is opt-in. It requires an already-running DSH Desktop Host and the supported Windows process/loopback discovery prerequisites; CI mocks these behaviors and does not prove real Desktop installation or login. The setup wizard never starts, stops, or logs in to DSH Desktop.
 
 ### Install with your AI agent
 
@@ -46,7 +55,8 @@ Send the following repository URL and prompt to Codex or another coding agent:
 ```text
 Install Codex-DSH-Orchestrator from https://github.com/Fly2Kiana/Codex-DSH-Orchestrator.
 Check Node.js 22+, the DSH CLI, and my DSH Web Host first. Clone it into a location I approve,
-run npm install and npm test. For Codex, run npm run setup -- --yes. For Claude Code, run
+run npm ci and npm run check. For Codex, run npm run setup -- --yes, then install and verify
+the shipped Codex skill separately through my normal Codex skill workflow. For Claude Code, run
 npm run setup:claude -- --yes --project /absolute/path/to/my/project.
 For Claude Code, let setup install the project MCP entry and shipped project skill; use --replace and --replace-skill only after reviewing existing files.
 If dsh_agentlink or the legacy dsh_collab entry already exists, show me the conflict before using --replace.
@@ -73,7 +83,7 @@ Do not start or stop dsh web for me. Tell me when I need to reload the selected 
    ```bash
    git clone https://github.com/Fly2Kiana/Codex-DSH-Orchestrator.git
    cd Codex-DSH-Orchestrator
-   npm install
+   npm ci
    ```
 
 4. Configure your caller.
@@ -91,7 +101,7 @@ Do not start or stop dsh web for me. Tell me when I need to reload the selected 
    npm run setup -- --desktop-auto
    ```
 
-   The Codex wizard backs up the Codex TOML configuration and installs the MCP entry with `approval_mode = "prompt"`. Static setup keeps requiring `dsh --version`; `--desktop-auto` can instead validate the already-running Desktop Host even when the CLI is not on `PATH`, and reports the missing package version as a compatibility warning. It never starts or stops DSH Desktop. Switching an existing bridge entry to either mode still requires reviewing it and adding `--replace`. Restart Codex, then use `/mcp` or Codex Settings to confirm that `dsh_agentlink` is connected. For fully manual TOML setup, see [Manual Codex MCP configuration](docs/manual-configuration.md).
+   The Codex wizard backs up the Codex TOML configuration and installs the MCP entry with `approval_mode = "prompt"`; it does not install `skill/codex-dsh-orchestrator/`. Install and enable that skill through your normal Codex skill workflow, then verify it is discoverable. Static setup keeps requiring `dsh --version`; `--desktop-auto` can instead validate the already-running Desktop Host even when the CLI is not on `PATH`, and reports the missing package version as a compatibility warning. It never starts or stops DSH Desktop. Switching an existing bridge entry to either mode still requires reviewing it and adding `--replace`. Restart Codex, then use `/mcp` or Codex Settings to confirm that `dsh_agentlink` is connected. For fully manual TOML setup, see [Manual Codex MCP configuration](docs/manual-configuration.md).
 
    For Claude Code 2.1.199 or newer, point the setup command at the project that should share `.mcp.json`:
 
