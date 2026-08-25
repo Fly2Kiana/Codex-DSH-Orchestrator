@@ -82,13 +82,18 @@ test("Codex skill replacement creates per-file backups and preserves unrelated f
   assert.equal(await readFile(result.backupPaths[1] as string, "utf8"), "old metadata\n");
 });
 
-test("Codex skill installation rejects a non-directory parent", async (context) => {
+test("Codex skill installation normalizes a non-directory parent across platforms", async (context) => {
   const project = await temporaryProject(context);
   await writeFile(join(project, ".agents"), "not a directory\n");
 
   await assert.rejects(
     () => prepareCodexSkillInstall(resolveCodexSkillTarget(project), false),
-    /Codex skill parent path is not a directory/,
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /^Codex skill parent path is not a directory:/);
+      assert.doesNotMatch(error.message, /^ENOTDIR:/);
+      return true;
+    },
   );
 });
 

@@ -51,6 +51,9 @@ async function assertExistingParentDirectoriesAreSafe(targetPath: string): Promi
   while (true) {
     const details = await lstat(current).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return undefined;
+      if (error.code === "ENOTDIR") {
+        throw new Error(`Codex skill parent path is not a directory: ${current}`, { cause: error });
+      }
       throw error;
     });
     if (details !== undefined) {
