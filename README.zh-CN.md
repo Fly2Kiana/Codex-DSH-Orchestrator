@@ -294,7 +294,7 @@ DSH 为复杂任务提供持久 session、工具调用、subagent 和人工监�
 | **Codex-DSH-Orchestrator** | 本项目——以 Codex 为主要入口的调用方 MCP bridge；运行时名为 `dsh_agentlink` |
 | [Codex](https://openai.com/index/introducing-the-codex-app/) / [Claude Code MCP](https://code.claude.com/docs/en/mcp) | 受支持的调用方 |
 | [DeepSeek Harness](https://www.deepseek.com/harness/en/) / [源代码仓库](https://github.com/deepseek-ai/deepseek-harness) | 本 bridge 连接的、由用户独立管理的 DSH Host 生态 |
-| DSH Desktop | 独立管理、运行上游 Web Host 的社区 DSH host；本项目未指明其确切的上游仓库，因此不猜测仓库链接 |
+| [DSH Desktop](https://github.com/anywhere-labs/dsh-desktop) | DeepSeek Harness 的独立社区桌面客户端；本 bridge 可通过 Windows 的可选 `--desktop-auto` 模式连接其 DSH Host |
 | [Model Context Protocol](https://modelcontextprotocol.io/) | bridge 使用的协议基础 |
 | [dsh-Agentlink](https://github.com/hootandy321/dsh-Agentlink) | 上游项目与兼容性来源；保留 MIT 许可证和 NOTICE 归属 |
 

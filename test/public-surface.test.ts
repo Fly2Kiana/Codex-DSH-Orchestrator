@@ -54,7 +54,15 @@ test("public documentation identifies Codex-DSH-Orchestrator at the repository e
       /github\.com\/Fly2Kiana\/Codex-DSH-Orchestrator/,
       label + " must point installation guidance at the maintained repository",
     );
+    assert.match(
+      document,
+      /\[DSH Desktop\]\(https:\/\/github\.com\/anywhere-labs\/dsh-desktop\)/,
+      label + " must identify the DSH Desktop repository",
+    );
   }
+
+  assert.doesNotMatch(readme, /exact upstream repository is not identified/i);
+  assert.doesNotMatch(readmeZh, /未指明其确切的上游仓库/);
 
   assert.ok(readme.indexOf("## Project boundary") < readme.indexOf("## Quick start"));
   assert.ok(readme.indexOf("## Quick start") < readme.indexOf("## For AI Agents"));
