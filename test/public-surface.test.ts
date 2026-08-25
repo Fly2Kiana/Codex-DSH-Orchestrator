@@ -1,8 +1,38 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 const root = new URL("../", import.meta.url);
+const rootPath = fileURLToPath(root);
+
+const ignoredDirectoryNames = new Set([".agents", ".git", ".worktrees", "dist", "node_modules"]);
+const ignoredFilePaths = new Set(["test/public-surface.test.ts"]);
+const publicSurfaceRules = [
+  ["drive-qualified user path", /[A-Za-z]:[\\/]+Users[\\/]+/i],
+  ["AppData path segment", /(?:^|[\\/])AppData(?:[\\/]|$)/i],
+  ["internal runner identity", new RegExp(["Codex", "SandboxOffline"].join(""))],
+  ["maintenance backup reference", new RegExp(["refs", "/", "backup", "/"].join(""))],
+  ["agent-only sub-skill directive", new RegExp(["REQUIRED", "\\s+", "SUB-SKILL"].join(""))],
+  ["internal agent workflow marker", new RegExp(["super", "powers", ":"].join(""))],
+] as const;
+
+async function collectRepositoryFiles(directory: string, relativeDirectory = ""): Promise<string[]> {
+  const files: string[] = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (entry.name === ".git" || ignoredDirectoryNames.has(entry.name)) continue;
+
+    const relativePath = relativeDirectory ? join(relativeDirectory, entry.name) : entry.name;
+    const absolutePath = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await collectRepositoryFiles(absolutePath, relativePath)));
+    } else if (entry.isFile() && !ignoredFilePaths.has(relativePath.replaceAll("\\", "/"))) {
+      files.push(relativePath);
+    }
+  }
+  return files;
+}
 
 test("public documentation identifies Codex-DSH-Orchestrator at the repository entry point", async () => {
   const [readme, readmeZh, overview, changelog, gitignore] = await Promise.all([
@@ -89,4 +119,15 @@ test("public source snapshot preserves license, attribution, and compatibility m
   assert.match(license, /MIT License/);
   assert.match(notice, /dsh-Agentlink/);
   assert.match(notice, /Copyright/);
+});
+
+test("public source surface excludes machine-specific and internal maintenance data", async () => {
+  const files = await collectRepositoryFiles(rootPath);
+
+  for (const relativePath of files) {
+    const document = await readFile(join(rootPath, relativePath), "utf8");
+    for (const [label, rule] of publicSurfaceRules) {
+      assert.doesNotMatch(document, rule, `${relativePath} contains ${label}`);
+    }
+  }
 });
