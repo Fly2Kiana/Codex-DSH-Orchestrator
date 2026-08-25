@@ -45,9 +45,18 @@ a successful setup exit code alone. Never start or stop DSH, approve requests, p
 write GitHub changes without my separate approval.
 ```
 
-### Human quick install (PowerShell)
+### Quick install with PowerShell
 
-This block is for a person installing the Codex integration directly in PowerShell. It is not a remote installer and does not call a remote setup service. It clones or fast-forwards the repository, installs dependencies, builds the bridge, writes the intended Codex MCP configuration and repository skill, and runs the read-only doctor command. It does not start, stop, log in to, or reconfigure DSH, and it creates no credentials. A successful setup only proves that the local installation commands completed; DSH login or trust, caller restart, `/mcp`, `/skills`, and a real delegation remain separate acceptance steps. `npm run doctor` may report a warning when no Host is running.
+To install the Codex integration on Windows, open PowerShell, paste the script below, and press Enter. Unless you change `$installDir`, it uses `%USERPROFILE%\Tools\Codex-DSH-Orchestrator`.
+
+The script will:
+
+- clone the repository, or fast-forward an existing clean checkout;
+- install dependencies with `npm ci` and build the bridge;
+- run `npm run setup -- --yes` to write the Codex MCP entry and the repository skill;
+- finish with the read-only `npm run doctor` check.
+
+The script performs setup on your machine. The only network operations are fetching the repository and npm dependencies. It does not start, stop, log in to, or reconfigure DSH, and it creates no credentials. If setup finds existing MCP or skill files that would be overwritten, it stops instead of replacing them silently; review the reported files, then re-run setup with `--replace` or `--replace-skill` only when you decide the replacement is safe.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
@@ -84,9 +93,18 @@ if ($doctorExitCode -ne 0) {
 }
 ```
 
-The block is intentionally for Codex. Claude Code uses the separate `setup:claude` flow. Existing MCP or skill conflicts are not silently overwritten; review them and supply `--replace` or `--replace-skill` only after explicit approval. Keep the checkout in a stable directory because setup records absolute paths.
+This installs the Codex integration. For Claude Code, use the separate `setup:claude` flow in the manual setup section below. Keep the checkout in a stable directory because setup records absolute paths in the caller configuration.
 
-### Manual installation
+After the script finishes:
+
+1. Start or open the DSH Host yourself if it is not already running.
+2. Restart Codex and confirm `dsh_agentlink` through `/mcp` or Settings.
+3. Use `/skills` and `$codex-dsh-orchestrator` to confirm that the skill was discovered.
+4. If `doctor` warned because no Host was running, start the Host and run `npm run doctor` again.
+
+A clean script exit means that the local installation steps completed. It does not by itself prove DSH login or trust, caller permissions, provider access, or a real delegation.
+
+### Manual setup and verification
 
 1. Start or open the DSH Host yourself. The bridge never starts, stops, or logs in to DSH Desktop/Web Host.
 
@@ -143,7 +161,7 @@ The block is intentionally for Codex. Claude Code uses the separate `setup:claud
 - On another machine, use a fresh clone. Do not copy a single worktree directory: its `.git` file points to the source clone's worktree metadata. On the same machine, create worktrees from the source clone with `git worktree add`.
 - Prefer `npm ci` for a clean, reproducible checkout. Use `npm install` only when intentionally updating the lockfile.
 - `npm run setup` writes the absolute Node.js executable and built bridge entry point into the caller configuration. Keep the checkout in a stable tools directory; after moving it, changing Node.js, or switching worktrees, rebuild and run setup again, review existing entries, and use `--replace` only with explicit approval.
-- Keep `DSH_BRIDGE_HOME` on a reliable local filesystem. Multiple processes of this same bridge may share one bridge home when they follow the documented cooperative locking model; they do not each need a separate home. A different bridge implementation, an incompatible ledger or schema, or an independently managed bridge must not reuse this directory. When several bridges must coexist, give each one a separate local directory, for example:
+- Keep `DSH_BRIDGE_HOME` on a reliable local filesystem. Multiple processes of this same bridge may share one home when they follow the documented cooperative locking model; they do not each need a separate directory. If you run a different bridge implementation, an incompatible ledger or schema, or an independently managed bridge, do not point it at this directory; give that bridge its own local home, for example:
 
   ```powershell
   $env:DSH_BRIDGE_HOME = Join-Path $env:USERPROFILE '.dsh\codex-dsh-orchestrator'

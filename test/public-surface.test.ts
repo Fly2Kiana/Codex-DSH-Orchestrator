@@ -28,10 +28,10 @@ test("public documentation identifies Codex-DSH-Orchestrator at the repository e
 
   assert.ok(readme.indexOf("## Project boundary") < readme.indexOf("## Quick start"));
   assert.ok(readme.indexOf("## Quick start") < readme.indexOf("## For AI Agents"));
-  assert.ok(readme.indexOf("### Recommended: copy/paste the Agent installation prompt") < readme.indexOf("### Manual installation"));
+  assert.ok(readme.indexOf("### Recommended: copy/paste the Agent installation prompt") < readme.indexOf("### Manual setup and verification"));
   assert.ok(readmeZh.indexOf("## 项目边界") < readmeZh.indexOf("## 快速上手"));
   assert.ok(readmeZh.indexOf("## 快速上手") < readmeZh.indexOf("## 给 AI Agents"));
-  assert.ok(readmeZh.indexOf("### 推荐：复制给 Agent 的安装 Prompt") < readmeZh.indexOf("### 手动安装"));
+  assert.ok(readmeZh.indexOf("### 推荐：复制给 Agent 的安装 Prompt") < readmeZh.indexOf("### 手动配置与验收"));
   for (const [label, document, phrases] of [
     [
       "README.md",

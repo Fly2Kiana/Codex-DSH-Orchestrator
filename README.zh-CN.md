@@ -42,9 +42,18 @@ skill 时才使用 --no-skill。Claude Code 运行 npm run setup:claude -- --yes
 发布 npm 包或写入 GitHub，除非我另行批准。
 ```
 
-### 面向人类的快速安装（PowerShell）
+### 使用 PowerShell 快速安装
 
-下面的代码块由人类在 PowerShell 中直接运行，面向 Codex，不是远程安装脚本，也不会调用远程安装服务。它会 clone 或 fast-forward 仓库、安装依赖、构建 bridge、写入预期的 Codex MCP 配置和仓库 skill，并运行只读的 doctor 命令。它不会启动、关闭、登录或重新配置 DSH，也不会创建凭据。运行成功只表示本地安装命令完成；DSH 登录或信任、调用方重启、`/mcp`、`/skills` 和真实委派仍需单独验收。没有运行 Host 时，`npm run doctor` 可能只会给出警告。
+要在 Windows 上安装 Codex 集成，请打开 PowerShell，粘贴下面的脚本并按回车。除非修改 `$installDir`，脚本会使用 `%USERPROFILE%\Tools\Codex-DSH-Orchestrator`。
+
+脚本会依次：
+
+- 克隆仓库，或 fast-forward 更新一个干净的现有 checkout；
+- 使用 `npm ci` 安装依赖并构建 bridge；
+- 运行 `npm run setup -- --yes`，写入 Codex MCP 入口和仓库 skill；
+- 最后运行只读的 `npm run doctor` 检查。
+
+脚本的安装步骤在你的电脑上执行；只有仓库和 npm 依赖需要联网下载。它不会启动、关闭、登录或重新配置 DSH，也不会创建凭据。如果 setup 发现将要覆盖已有的 MCP 或 skill 文件，会停止而不是静默替换；请先查看报告的文件，确认替换安全后，再使用 `--replace` 或 `--replace-skill` 重新运行 setup。
 
 ```powershell
 $ErrorActionPreference = 'Stop'
@@ -81,9 +90,18 @@ if ($doctorExitCode -ne 0) {
 }
 ```
 
-这个代码块专门面向 Codex；Claude Code 使用独立的 `setup:claude` 流程。已有 MCP 或 skill 冲突时不会静默覆盖；只有在明确批准后，才审查并提供 `--replace` 或 `--replace-skill`。请把 checkout 保存在稳定目录，因为 setup 会记录绝对路径。
+这个安装流程配置的是 Codex。Claude Code 请使用下方手动配置部分中的独立 `setup:claude` 流程。请把 checkout 保存在稳定目录，因为 setup 会把绝对路径写入调用方配置。
 
-### 手动安装
+脚本运行结束后：
+
+1. 如果 DSH Host 尚未运行，请先由你自行启动或打开它。
+2. 重启 Codex，通过 `/mcp` 或设置确认 `dsh_agentlink`。
+3. 使用 `/skills` 和 `$codex-dsh-orchestrator` 确认 skill 已被发现。
+4. 如果 `doctor` 因 Host 未运行而给出警告，启动 Host 后再次运行 `npm run doctor`。
+
+脚本成功退出只表示本地安装步骤完成，不代表 DSH 已登录或信任、调用方权限和 provider 已确认，也不代表真实委派已经成功。
+
+### 手动配置与验收
 
 1. 由你自行启动或打开 DSH Host。bridge 不会启动、关闭或登录 DSH Desktop/Web Host。
 
@@ -140,7 +158,7 @@ if ($doctorExitCode -ne 0) {
 - 换到另一台机器时请重新 clone。不要直接复制单个 worktree 目录：其中的 `.git` 文件指向原始 clone 的 worktree 元数据。同一台机器上需要 worktree 时，请从源 clone 使用 `git worktree add` 创建。
 - 干净、可复现的 checkout 优先使用 `npm ci`；只有明确要更新 lockfile 时才使用 `npm install`。
 - `npm run setup` 会把 Node.js 可执行文件和构建后的 bridge 入口的绝对路径写入调用方配置。请把 checkout 放在稳定的工具目录；移动目录、更换 Node.js 或切换 worktree 后，应重新构建并运行 setup，先审查已有条目，再在明确授权后使用 `--replace`。
-- `DSH_BRIDGE_HOME` 应位于可靠的本地文件系统。同一个 bridge 的多个进程只要遵循文档中的协作锁模型，就可以共用同一个 bridge home，不必各自新建。其他 bridge 实现、ledger 或 schema 不兼容的版本，以及独立管理的 bridge，都不得复用这个目录。多个 bridge 需要共存时，请为每个 bridge 使用独立的本地目录，例如：
+- `DSH_BRIDGE_HOME` 应位于可靠的本地文件系统。同一个 bridge 的多个进程只要遵循文档中的协作锁模型，就可以共用一个 home，不必每个进程单独建目录。如果运行其他 bridge 实现、ledger 或 schema 不兼容的版本，或运行独立管理的 bridge，就不要让它复用这个目录；请为那个 bridge 指定独立的本地 home，例如：
 
   ```powershell
   $env:DSH_BRIDGE_HOME = Join-Path $env:USERPROFILE '.dsh\codex-dsh-orchestrator'
