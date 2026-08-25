@@ -17,6 +17,11 @@ import {
   upsertMcpConfig,
   verifyCodexMcpBlock,
 } from "./codex-integration.js";
+import {
+  installCodexSkill,
+  prepareCodexSkillInstall,
+  resolveCodexSkillTarget,
+} from "./codex-skill-install.js";
 import type { InstallPlan, UpsertMcpServerOperation } from "./caller-integration.js";
 import { loadConfig } from "./config.js";
 import { DshClient } from "./dsh-client.js";
@@ -45,10 +50,22 @@ export {
 export { readConfigSnapshot } from "./setup-engine.js";
 export type { ConfigSnapshot } from "./setup-engine.js";
 export type { RenderMcpConfigOptions } from "./codex-integration.js";
+export {
+  installCodexSkill,
+  prepareCodexSkillInstall,
+  resolveCodexSkillTarget,
+} from "./codex-skill-install.js";
+export type {
+  CodexSkillFilePlan,
+  CodexSkillInstallPlan,
+  CodexSkillInstallResult,
+} from "./codex-skill-install.js";
 
 export interface SetupOptions {
   yes: boolean;
   replace: boolean;
+  replaceSkill: boolean;
+  noSkill: boolean;
   dryRun: boolean;
   skipDoctor: boolean;
   noPreset: boolean;
@@ -57,6 +74,7 @@ export interface SetupOptions {
   host?: string;
   preset?: string;
   configPath?: string;
+  skillPath?: string;
 }
 
 function valueAfter(argv: string[], index: number, option: string): string {
@@ -69,6 +87,8 @@ export function parseSetupArgs(argv: string[]): SetupOptions {
   const options: SetupOptions = {
     yes: false,
     replace: false,
+    replaceSkill: false,
+    noSkill: false,
     dryRun: false,
     skipDoctor: false,
     noPreset: false,
@@ -80,6 +100,8 @@ export function parseSetupArgs(argv: string[]): SetupOptions {
     const argument = argv[index];
     if (argument === "--yes" || argument === "-y") options.yes = true;
     else if (argument === "--replace") options.replace = true;
+    else if (argument === "--replace-skill") options.replaceSkill = true;
+    else if (argument === "--no-skill") options.noSkill = true;
     else if (argument === "--dry-run") options.dryRun = true;
     else if (argument === "--skip-doctor") options.skipDoctor = true;
     else if (argument === "--no-preset") options.noPreset = true;
@@ -97,6 +119,10 @@ export function parseSetupArgs(argv: string[]): SetupOptions {
       options.configPath = valueAfter(argv, index, argument);
       index += 1;
     } else if (argument?.startsWith("--config=")) options.configPath = argument.slice("--config=".length);
+    else if (argument === "--skill-path") {
+      options.skillPath = valueAfter(argv, index, argument);
+      index += 1;
+    } else if (argument?.startsWith("--skill-path=")) options.skillPath = argument.slice("--skill-path=".length);
     else throw new Error(`unknown option: ${argument}`);
   }
 
@@ -105,6 +131,12 @@ export function parseSetupArgs(argv: string[]): SetupOptions {
   }
   if (options.desktopAuto && options.host !== undefined) {
     throw new Error("--desktop-auto and --host cannot be used together");
+  }
+  if (options.noSkill && options.replaceSkill) {
+    throw new Error("--replace-skill and --no-skill cannot be used together");
+  }
+  if (options.noSkill && options.skillPath !== undefined) {
+    throw new Error("--skill-path and --no-skill cannot be used together");
   }
   return options;
 }
@@ -218,6 +250,9 @@ Options:
   --preset <name>    DSH agent preset (default: ${DEFAULT_PRESET})
   --no-preset        Follow DSH's own default preset
   --replace          Replace an existing ${CODEX_SERVER_NAME} configuration
+  --replace-skill    Replace conflicting Codex skill files after reviewing them
+  --no-skill         Skip repository-scoped Codex skill installation
+  --skill-path <dir> Install the Codex skill into an explicit directory
   --config <path>    Write a specific Codex config file
   --dry-run          Print the generated block without writing
   --skip-doctor      Skip the read-only DSH Host check
@@ -274,33 +309,64 @@ async function main(): Promise<void> {
 
   const snapshot = await readConfigSnapshot(configPath);
   const existing = snapshot.content;
-  if (codexIntegration.verifyInstalled(existing, operation)) {
-    console.log(`${CODEX_SERVER_NAME} already matches this setup. No changes made.`);
-    return;
-  }
-
   const replace = options.replace;
-  requireExplicitBridgeReplacement(existing, replace);
   if (operation.replace !== replace) {
     plan = createPlan(replace);
     operation = firstCodexOperation(plan);
     bridgeBlock = renderCodexOperation(operation);
   }
 
+  const mcpAlreadyCurrent = codexIntegration.verifyInstalled(existing, operation);
+  if (!mcpAlreadyCurrent) requireExplicitBridgeReplacement(existing, replace);
+  const mcpContent = mcpAlreadyCurrent ? undefined : upsertMcpConfig(existing, bridgeBlock, replace);
+  const skillPlan = options.noSkill
+    ? undefined
+    : await prepareCodexSkillInstall(resolveCodexSkillTarget(process.cwd(), options.skillPath), options.replaceSkill);
+
   if (options.dryRun) {
-    upsertMcpConfig(existing, bridgeBlock, replace);
-    console.log(`# Would update ${plan.target.path}\n\n${bridgeBlock}`);
+    if (mcpContent === undefined) console.log(`# ${CODEX_SERVER_NAME} already matches ${plan.target.path}`);
+    else console.log(`# Would update ${plan.target.path}\n\n${bridgeBlock}`);
+    if (skillPlan === undefined) {
+      console.log("# Codex skill installation is disabled (--no-skill)");
+    } else {
+      console.log(
+        `# Would ${skillPlan.changed ? "install/update" : "keep"} Codex skill at ${skillPlan.targetPath}`,
+      );
+    }
     return;
   }
 
-  const installation = await installCodexPlan(plan, snapshot);
-  if (!installation.changed) {
+  if (mcpContent === undefined && (skillPlan === undefined || !skillPlan.changed)) {
     console.log(`${CODEX_SERVER_NAME} already matches this setup. No changes made.`);
     return;
   }
 
-  console.log(`Configured ${CODEX_SERVER_NAME} in ${configPath}`);
+  let skillInstallation: Awaited<ReturnType<typeof installCodexSkill>> | undefined;
+  if (skillPlan !== undefined) skillInstallation = await installCodexSkill(skillPlan);
+
+  let installation: InstallMcpConfigResult;
+  try {
+    installation =
+      mcpContent === undefined ? { changed: false } : await installCodexPlan(plan, snapshot);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (skillInstallation?.changed) {
+      throw new Error(`Codex skill was installed, but MCP configuration failed: ${message}. Rerun setup after reviewing the config.`);
+    }
+    throw error;
+  }
+
+  if (installation.changed) console.log(`Configured ${CODEX_SERVER_NAME} in ${configPath}`);
+  else console.log(`${CODEX_SERVER_NAME} already matches ${configPath}`);
   if (installation.backupPath !== undefined) console.log(`Backup: ${installation.backupPath}`);
+  if (skillPlan === undefined) {
+    console.log("Codex skill: skipped (--no-skill)");
+  } else if (skillInstallation?.changed) {
+    console.log(`Codex skill: installed at ${skillInstallation.targetPath}`);
+    for (const backupPath of skillInstallation.backupPaths) console.log(`Codex skill backup: ${backupPath}`);
+  } else {
+    console.log(`Codex skill: already current at ${skillPlan.targetPath}`);
+  }
   console.log(`DSH CLI: ${dshVersion ?? "not found (Desktop Host capability probe only)"}`);
   console.log(`DSH Host: ${hostMode === "desktop-auto" ? "DSH Desktop automatic loopback discovery" : hostUrl}`);
   console.log(`DSH agent preset (composition; not sandbox): ${preset ?? "Host default"}`);

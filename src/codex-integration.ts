@@ -8,12 +8,12 @@ export const CODEX_SERVER_NAME = "dsh_agentlink";
 export const CODEX_LEGACY_SERVER_NAMES = ["dsh_collab"] as const;
 export const CODEX_BRIDGE_SERVER_NAMES = [CODEX_SERVER_NAME, ...CODEX_LEGACY_SERVER_NAMES] as const;
 export const CODEX_RESTART_HINT =
-  "Restart Codex to load dsh-Agentlink. Omit semantic routing to inherit DSH's live model; explicit routing may update DSH's global default.";
+  "Restart Codex to load dsh-Agentlink and discover the repository skill at .agents/skills/codex-dsh-orchestrator. Skill installation does not prove DSH Host connectivity, login, permissions, or end-to-end execution.";
 
 const CODEX_CAPABILITIES: CallerCapabilities = {
   mcpStdio: true,
   configScopes: ["user", "explicit-file"],
-  instructionInstall: "manual",
+  instructionInstall: "native",
   humanApprovalPrompt: "supported",
   legacyMigration: true,
   restartRequired: true,
@@ -237,6 +237,7 @@ export function createCodexInstallPlan(options: CodexInstallPlanOptions): Instal
     verification: [{ kind: "mcp-server-block-matches", serverName: CODEX_SERVER_NAME }],
     warnings: [
       `Existing ${CODEX_SERVER_NAME} or legacy ${CODEX_LEGACY_SERVER_NAMES.join(", ")} entries require explicit replacement approval.`,
+      "npm run setup installs the shipped Codex skill into the current repository's .agents/skills/codex-dsh-orchestrator directory unless --no-skill is provided.",
       CODEX_RESTART_HINT,
     ],
     restartHint: CODEX_RESTART_HINT,

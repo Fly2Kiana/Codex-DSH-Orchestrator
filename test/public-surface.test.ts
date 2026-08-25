@@ -5,11 +5,12 @@ import { test } from "node:test";
 const root = new URL("../", import.meta.url);
 
 test("public documentation identifies Codex-DSH-Orchestrator at the repository entry point", async () => {
-  const [readme, readmeZh, overview, changelog] = await Promise.all([
+  const [readme, readmeZh, overview, changelog, gitignore] = await Promise.all([
     readFile(new URL("README.md", root), "utf8"),
     readFile(new URL("README.zh-CN.md", root), "utf8"),
     readFile(new URL("docs/project-overview.md", root), "utf8"),
     readFile(new URL("CHANGELOG.md", root), "utf8"),
+    readFile(new URL(".gitignore", root), "utf8"),
   ]);
 
   for (const [label, document] of [
@@ -25,6 +26,29 @@ test("public documentation identifies Codex-DSH-Orchestrator at the repository e
     );
   }
 
+  assert.ok(readme.indexOf("## Project boundary") < readme.indexOf("## Quick start"));
+  assert.ok(readme.indexOf("## Quick start") < readme.indexOf("## For AI Agents"));
+  assert.ok(readme.indexOf("### Recommended: copy/paste the Agent installation prompt") < readme.indexOf("### Manual setup and verification"));
+  assert.ok(readmeZh.indexOf("## 项目边界") < readmeZh.indexOf("## 快速上手"));
+  assert.ok(readmeZh.indexOf("## 快速上手") < readmeZh.indexOf("## 给 AI Agents"));
+  assert.ok(readmeZh.indexOf("### 推荐：复制给 Agent 的安装 Prompt") < readmeZh.indexOf("### 手动配置与验收"));
+  for (const [label, document, phrases] of [
+    [
+      "README.md",
+      readme,
+      ["npm run setup -- --yes", ".agents/skills/codex-dsh-orchestrator", "--no-skill", "--replace-skill", "For AI Agents"],
+    ],
+    [
+      "README.zh-CN.md",
+      readmeZh,
+      ["npm run setup -- --yes", ".agents/skills/codex-dsh-orchestrator", "--no-skill", "--replace-skill", "给 AI Agents"],
+    ],
+  ] as const) {
+    for (const phrase of phrases) assert.equal(document.includes(phrase), true, `${label} lost setup phrase: ${phrase}`);
+  }
+  assert.doesNotMatch(readme, /npm run setup[^\n]*does not install.*skill/i);
+  assert.doesNotMatch(readmeZh, /npm run setup[^\n]*不会安装.*skill/i);
+
   for (const phrase of [
     "Project components",
     "Project overview",
@@ -36,6 +60,7 @@ test("public documentation identifies Codex-DSH-Orchestrator at the repository e
 
   assert.match(overview, /^# Codex-DSH-Orchestrator project overview$/m);
   assert.match(changelog, /^## 0\.1\.0-alpha\.2 — source snapshot$/m);
+  assert.match(gitignore, /^\/\.agents\/skills\/codex-dsh-orchestrator\/$/m);
 });
 
 test("public source snapshot preserves license, attribution, and compatibility metadata", async () => {

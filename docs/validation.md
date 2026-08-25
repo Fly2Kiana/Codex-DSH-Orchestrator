@@ -20,10 +20,20 @@ The unit tests use mock DSH hosts. They cover bridge state, cursor recovery, eve
 - The current automated matrix covers x64 Ubuntu and Windows with Node.js 22 and 24. Node.js 22+ is the project floor, not evidence for every future major or ARM64 environment; use x64 Node.js 22 or 24 as the safest new-machine baseline.
 - Use a fresh clone on another machine. A single worktree must not be copied because its `.git` file points to worktree metadata in the source clone. On the same machine, create a new worktree from the source clone with `git worktree add`.
 - Setup records absolute paths to the Node.js executable and built bridge entry point in the caller configuration. Keep the checkout in a stable tools directory; after moving it, changing the Node.js installation, or switching worktrees, rebuild and run setup again, review the existing entry, and use `--replace` only after explicit approval.
-- Codex MCP setup is not Codex skill installation. `npm run setup` writes the MCP entry but does not install `skill/codex-dsh-orchestrator/`; install and verify that skill separately through the normal Codex skill workflow. Claude Code setup manages its project skill separately.
-- Keep `DSH_BRIDGE_HOME` on a reliable local filesystem. Do not copy an old bridge home across machines: use a fresh home and start new bridge mappings, cursors, and claims. DSH `session.history` remains owned by the Host and is not migrated by copying bridge state.
+- Codex setup manages two separate outputs: the MCP entry in the selected Codex TOML file and the shipped skill files in the repository-scoped `.agents/skills/codex-dsh-orchestrator/` directory. By default `npm run setup` installs `SKILL.md` and `agents/openai.yaml`; `--no-skill` opts out, `--skill-path <dir>` selects another target, and `--replace-skill` is required for conflicting files. Confirm `/mcp` and `/skills` after restarting Codex; setup success alone does not prove caller trust, DSH login, permissions, or end-to-end execution. Claude Code setup manages its project skill separately.
+- Keep `DSH_BRIDGE_HOME` on a reliable local filesystem. Multiple processes of this same bridge may share one bridge home when they follow the documented cooperative locking model; a different bridge implementation, incompatible ledger/schema, or independently managed bridge must use another local directory. On a new machine, use a fresh disposable bridge home and do not copy bridge state. If an explicitly shared `DSH_BRIDGE_HOME` is configured, verify that every process using it is this same bridge with a compatible ledger/schema and the documented cooperative locking model. DSH `session.history` remains owned by the Host and is not migrated by copying bridge state.
 - Windows `DSH_HOST_MODE=desktop-auto` is opt-in and requires an already-running DSH Desktop Host plus the supported Windows process and loopback discovery prerequisites. CI mocks those behaviors and does not constitute real Desktop installation, login, or plugin acceptance.
-- Release `v0.1.0-alpha.3` is a prerelease source release. Its clean-build CI and package dry-run evidence do not claim a fresh-machine Codex skill installation or a live DSH Desktop/login/plugin end-to-end acceptance. Those claims require a separately approved disposable run.
+- Release source checks do not claim a fresh-machine Codex caller restart/discovery or a live DSH Desktop/login/plugin end-to-end acceptance. Those claims require a separately approved disposable run; the local skill installer check only proves exact file installation and conflict safety.
+
+## Codex skill installation check
+
+The repeatable local check for the shipped Codex skill is separate from live caller acceptance:
+
+1. Build and test the source tree with `npm ci` and `npm run check`.
+2. Run `npm run setup -- --yes` from the repository root, or use `--skill-path <temporary-directory>` with a disposable Codex config for an isolated check.
+3. Confirm that exactly `SKILL.md` and `agents/openai.yaml` were installed under the reported skill target, with no unrelated files changed. The default repository-local generated copy is ignored by Git; the canonical source remains under `skill/`.
+4. Re-run setup to confirm an idempotent no-op. Create a deliberate non-secret conflict in a disposable target and confirm setup refuses it until `--replace-skill` is supplied.
+5. Restart Codex and confirm `/skills` lists the skill and `$codex-dsh-orchestrator` can be invoked. This final caller check is operator-observed and must not be inferred from the setup process output.
 
 ## Cross-task session reuse acceptance (mock)
 

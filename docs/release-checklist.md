@@ -33,8 +33,9 @@ with or endorsed by DeepSeek, OpenAI, or the dsh-Agentlink maintainers.
 - Keep the upstream MIT terms intact when modifying or redistributing the
   shared bridge runtime.
 - Remove generated files and local state from the release tree, including
-  `node_modules/`, `dist/`, `.env` files, logs, archives, editor metadata, and
-  bridge state.
+  `node_modules/`, `dist/`, the repository-local generated
+  `.agents/skills/codex-dsh-orchestrator/` copy, `.env` files, logs, archives,
+  editor metadata, and bridge state.
 - Search the complete release tree for credentials, private keys, tokens,
   personal absolute paths, internal hostnames, and real session identifiers.
 - Verify that every third-party asset and copied source has a documented

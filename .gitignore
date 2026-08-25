@@ -7,3 +7,4 @@ coverage/
 .env
 .env.*
 .dsh-bridge/
+/.agents/skills/codex-dsh-orchestrator/
