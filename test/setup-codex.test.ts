@@ -90,7 +90,7 @@ test("setup exposes a caller integration install plan without original config co
   assert.deepEqual(plan.capabilities, {
     mcpStdio: true,
     configScopes: ["user", "explicit-file"],
-    instructionInstall: "manual",
+    instructionInstall: "native",
     humanApprovalPrompt: "supported",
     legacyMigration: true,
     restartRequired: true,
@@ -251,16 +251,21 @@ test("setup flags parse non-interactive and replacement choices", () => {
     parseSetupArgs([
       "--yes",
       "--replace",
+      "--replace-skill",
       "--host",
       "http://localhost:3080",
       "--preset=research",
       "--config",
       "/tmp/codex config.toml",
       "--skip-doctor",
+      "--skill-path",
+      "/tmp/project/.agents/skills/codex-dsh-orchestrator",
     ]),
     {
       yes: true,
       replace: true,
+      replaceSkill: true,
+      noSkill: false,
       dryRun: false,
       skipDoctor: true,
       noPreset: false,
@@ -269,6 +274,7 @@ test("setup flags parse non-interactive and replacement choices", () => {
       host: "http://localhost:3080",
       preset: "research",
       configPath: "/tmp/codex config.toml",
+      skillPath: "/tmp/project/.agents/skills/codex-dsh-orchestrator",
     },
   );
   assert.throws(() => parseSetupArgs(["--preset", "code", "--no-preset"]), /cannot be used together/);
@@ -276,6 +282,8 @@ test("setup flags parse non-interactive and replacement choices", () => {
   assert.deepEqual(parseSetupArgs(["--yes", "--desktop-auto", "--no-preset"]), {
     yes: true,
     replace: false,
+    replaceSkill: false,
+    noSkill: false,
     dryRun: false,
     skipDoctor: false,
     noPreset: true,
@@ -286,6 +294,19 @@ test("setup flags parse non-interactive and replacement choices", () => {
     () => parseSetupArgs(["--desktop-auto", "--host", "http://127.0.0.1:3080"]),
     /--desktop-auto and --host cannot be used together/,
   );
+  assert.deepEqual(parseSetupArgs(["--yes", "--no-skill"]), {
+    yes: true,
+    replace: false,
+    replaceSkill: false,
+    noSkill: true,
+    dryRun: false,
+    skipDoctor: false,
+    noPreset: false,
+    desktopAuto: false,
+    help: false,
+  });
+  assert.throws(() => parseSetupArgs(["--replace-skill", "--no-skill"]), /cannot be used together/);
+  assert.throws(() => parseSetupArgs(["--no-skill", "--skill-path", ".agents/skills/custom"]), /cannot be used together/);
 });
 
 test("setup requires the --replace decision before any existing bridge can be updated", () => {

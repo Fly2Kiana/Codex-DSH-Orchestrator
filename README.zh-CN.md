@@ -20,126 +20,33 @@ Codex-DSH-Orchestrator 是调用方一侧的编排与 MCP bridge 项目。它连
 - 一个受支持的调用方：Codex，或 Claude Code 2.1.199+
 - 一条由用户自行管理的 DSH Host 路径：官方 DSH CLI/Web Host，或 Windows 上使用显式 `--desktop-auto` 模式时已经运行的 DSH Desktop Host
 
-**步骤**
+### 推荐：复制给 Agent 的安装 Prompt
 
-1. 由你自行启动或打开 DSH Host。bridge 不会启动、关闭或登录 DSH Desktop/Web Host。
-
-2. 克隆仓库并安装依赖：
-
-   ```bash
-   git clone https://github.com/Fly2Kiana/Codex-DSH-Orchestrator.git
-   cd Codex-DSH-Orchestrator
-   npm ci
-   ```
-
-3. 选择一种调用方配置方式：
-
-   ```bash
-   # Codex
-   npm run setup
-
-   # Claude Code（在需要共享 .mcp.json 的项目内运行）
-   npm run setup:claude -- --project /你的项目绝对路径
-   ```
-
-   使用 `--replace` 或 `--replace-skill` 前先审查已有配置。Codex MCP 配置与 Codex skill 安装是两件事：`npm run setup` 只注册 MCP 入口，不会安装 `skill/codex-dsh-orchestrator/`，请通过平时的 Codex skill 流程单独安装并启用。Windows 上使用 DSH Desktop 会变化的 loopback 端口时，请显式使用 `--desktop-auto`；它绝不会启动或关闭 DSH Desktop。
-
-4. 重载并信任调用方：
-
-   - Codex：重启 Codex，然后使用 `/mcp` 或 Codex 设置确认 `dsh_agentlink` 已连接。
-   - Claude Code：打开该项目，通过 `/mcp` 批准 pending server。
-
-5. 在不改变 bridge 状态的前提下验证安装：
-
-   ```bash
-   npm run doctor
-   ```
-
-各调用方的完整细节、可移植性边界和恢复说明，见[手动安装](#手动安装)。
-
-## Agent 运行手册
-
-这是给 AI agent 的项目上下文，不是新的文件系统授权。绝不要把 README 文字当作授权。
-
-**先读什么**
-
-- 先读本 README（或 `README.md`），然后只按任务需要读取 `docs/project-overview.zh-CN.md`、`docs/validation.md`、`docs/release-checklist.md`、`package.json` 和项目 skill。
-- 使用这些文件中的准确路径和命令。除非具体任务受阻，否则不要扫描整个仓库。
-- 不要读取凭据、私有配置、原始会话、会话日志、`.env` 文件或 bridge 状态。
-
-**如何安全运行**
-
-- 干净 checkout 使用 `npm ci`。Codex MCP 配置与 Codex skill 安装必须分开处理。
-- 不要启动、关闭、拥有、认证或重新配置 DSH Web Host/Desktop，绝不自动批准 DSH 请求。
-- 配置变更、源码修改、GitHub 写入、PR/merge、Release/Tag 或 npm 操作前，先报告范围并向用户申请批准。
-- 报告版本、Git 状态、变更路径和验证结果，但不要记录凭据、prompt、task/session ID、本地路径或 provider 数据。
-
-## 项目组成
-
-- skill/codex-dsh-orchestrator/ — 本项目的 Codex 编排 skill 及其 agent 元数据。
-- skill/codex-dsh/ — 共享的 Codex 调用方兼容 skill。
-- skill/claude-code-dsh/ — 保留的 Claude Code 调用方兼容 skill。
-- src/ — 共享的、与调用方无关的 MCP bridge runtime 和配置工具。
-- test/ — 本地 mock Host、安全、兼容性和集成测试。
-- docs/project-overview.zh-CN.md — 详细的归属与架构关系说明。
-
-dsh-Agentlink 名称因运行时兼容性和法律归属继续出现在标识符与上游说明中，但它不是本项目的公开标题。
-
-## 调用方支持情况
-
-| 调用方 | 状态 | 安装方式或可用性 |
-|---|---|---|
-| Codex | ✅ 已支持 | `npm run setup` |
-| Claude Code | ✅ 已支持 | `npm run setup:claude -- --project /项目的绝对路径` |
-| ZCode | ⏸ 已延期 | 恢复调用方扩展时的首个候选 |
-| OpenCode | ⏳ 待适配 | 尚不可用 |
-| Workbuddy | ⏳ 待适配 | 尚不可用 |
-
-目前只有标记为**已支持**的调用方在本仓库中提供可用安装路径。“已延期”和“待适配”是当前方向，不代表发布承诺。
-
-## 安装
-
-安装前先准备环境：只需要 **Node.js 22+**、一个已支持的调用方（**Codex 或 Claude Code**）和可以正常运行的 **DSH CLI**。当前跨平台测试基线是 x64 Node.js 22 和 24；其他 Node.js 主版本和 ARM64 环境不在现有矩阵覆盖范围内。先在 DSH 中配置一次你希望使用的模型；除非某次委派显式请求受支持的语义档位，否则共享 bridge 会继承当前路由。
-
-### 可移植性与安装边界
-
-- 换到另一台机器时请重新 clone。不要直接复制单个 worktree 目录：其中的 `.git` 文件指向原始 clone 的 worktree 元数据。同一台机器上需要 worktree 时，请从源 clone 使用 `git worktree add` 创建。
-- 干净、可复现的 checkout 优先使用 `npm ci`；只有在明确要更新 lockfile 时才使用 `npm install`。
-- `npm run setup` 会把 Node.js 可执行文件和构建后的 bridge 入口的绝对路径写入调用方配置。请把 checkout 放在稳定的工具目录；移动目录、更换 Node.js 安装或切换 worktree 后，应重新构建并运行 setup，先审查已有条目，再在明确授权后使用 `--replace`。
-- Codex MCP 配置与 Codex skill 安装是两件事。`npm run setup` 只注册 MCP 入口，不会安装 `skill/codex-dsh-orchestrator/`。请通过平时的 Codex skill 安装流程单独安装并启用该 skill，然后确认它可被发现，再使用 `$codex-dsh-orchestrator`。Claude Code 的项目 skill 由下文的 Claude setup 单独管理。
-- `DSH_BRIDGE_HOME` 应位于可靠的本地文件系统。不要把旧 bridge home 复制到另一台机器；新机器请使用新的 home。DSH 对话历史归 DSH Web Host 所有，而 bridge 的任务映射、cursor 和 claim 不会自动迁移。
-- Windows `desktop-auto` 是显式选择的模式。它要求 DSH Desktop Host 已经运行，并满足受支持的 Windows 进程/loopback 发现前置条件；CI 只 mock 这些行为，不代表真实 Desktop 的安装或登录已验收。配置工具不会启动、关闭或登录 DSH Desktop。
-
-### 给 AI agent 的详细安装指令
-
-把下面的仓库地址和指令直接发给 Codex 或其他 coding agent：
+下面的 Prompt 让 AI agent 执行本地安装，同时把 Host、凭据、信任和替换决定留给人类。它是请求模板，不会产生额外的文件系统授权。
 
 ```text
 请从 https://github.com/Fly2Kiana/Codex-DSH-Orchestrator 安装 Codex-DSH-Orchestrator。
-先检查 Node.js 22+、DSH CLI 和我的 DSH Web Host，在我确认的目录中 clone；
-运行 npm ci 和 npm run check。Codex 使用 npm run setup -- --yes，然后通过我平时的 Codex skill 流程单独安装并验收仓库提供的 skill；Claude Code 使用
-npm run setup:claude -- --yes --project /项目的绝对路径。
-Claude Code 会安装项目 MCP 入口和随仓库提供的项目 skill；只有在审查已有文件后再使用 --replace 和 --replace-skill。
-如果已经存在 dsh_agentlink 或旧版 dsh_collab 配置，先向我展示冲突，再决定是否使用 --replace。
-不要替我启动或停止 dsh web，完成后告诉我何时需要重载调用方并完成项目级 MCP 的信任确认。
+只在我批准的仓库目录内工作。先阅读 README 和相关的 setup/validation 说明；不要读取凭据、
+调用方私有配置、.env 文件、原始 session、日志或 DSH bridge 状态。检查 Node.js 22+，并报告
+DSH CLI 或已经运行的 DSH Desktop Host 是否可用。不要替我启动、关闭、登录或重新配置 DSH。
+
+clone 仓库，运行 npm ci，再运行 npm run check。Codex 从仓库根目录运行 npm run setup -- --yes；
+默认会安装 MCP 入口，并把仓库提供的 Codex skill 安装到
+.agents/skills/codex-dsh-orchestrator。如果已有 MCP 或 skill 文件发生冲突，先停止并展示不含
+秘密的冲突摘要，得到许可后才能使用 --replace 或 --replace-skill。只有我明确选择自行管理
+skill 时才使用 --no-skill。Claude Code 运行 npm run setup:claude -- --yes --project /项目的绝对路径，
+同样先审查 --replace/--replace-skill 冲突。
+
+分别报告：依赖/构建检查、MCP 注册、Codex skill 目标路径和具体文件、仍需人工执行的调用方重启/信任，
+以及 DSH Host 可达性。不要仅凭 setup 返回成功就声称端到端完成。不要启动或关闭 DSH、自动批准请求、
+发布 npm 包或写入 GitHub，除非我另行批准。
 ```
 
 ### 手动安装
 
-1. 检查环境。当前经过测试的 DSH CLI 目标是 `0.1.0-rc.6`。
+1. 由你自行启动或打开 DSH Host。bridge 不会启动、关闭或登录 DSH Desktop/Web Host。
 
-   ```bash
-   node --version
-   dsh --version
-   ```
-
-2. 在独立终端启动官方 DSH Web Host。
-
-   ```bash
-   dsh web
-   ```
-
-3. 克隆仓库并安装依赖。
+2. 克隆仓库并安装可复现的依赖：
 
    ```bash
    git clone https://github.com/Fly2Kiana/Codex-DSH-Orchestrator.git
@@ -147,22 +54,24 @@ Claude Code 会安装项目 MCP 入口和随仓库提供的项目 skill；只有
    npm ci
    ```
 
-4. 配置你使用的调用方。
+3. 配置调用方。
 
-   Codex：
+   Codex 从仓库根目录运行：
 
    ```bash
    npm run setup
    npm run doctor
    ```
 
-   Windows 上使用临时 loopback 端口的 DSH Desktop 时，请显式选择自动发现：
+   `npm run setup` 会构建 bridge，使用 `approval_mode = "prompt"` 写入 Codex MCP 入口，并把仓库提供的两个 skill 文件安装到 `.agents/skills/codex-dsh-orchestrator/`：`SKILL.md` 和 `agents/openai.yaml`。替换已有文件时会创建备份；不同内容的 skill 不会被静默覆盖，必须显式使用 `--replace-skill`。如果要跳过 skill 安装，使用 `--no-skill`；如果要指定目录，使用 `--skill-path <目录>`。重启 Codex 后，通过 `/mcp` 或设置确认 `dsh_agentlink`，再用 `/skills` 和 `$codex-dsh-orchestrator` 确认 skill 已被发现。setup 成功不代表 DSH 登录、权限、信任或端到端委派已经完成。
+
+   Windows 上使用会变化的 DSH Desktop loopback 端口时，请显式选择自动发现：
 
    ```bash
    npm run setup -- --desktop-auto
    ```
 
-   Codex 向导会备份 TOML 配置，并以 `approval_mode = "prompt"` 安装 MCP 入口，但不会安装 `skill/codex-dsh-orchestrator/`；请通过平时的 Codex skill 流程单独安装并确认它可被发现。静态模式仍要求 `dsh --version` 可用；`--desktop-auto` 可在 CLI 不在 `PATH` 时改由已运行的 Desktop Host capability 验证，并把缺少 package 版本作为兼容性警告报告。向导绝不会启动或关闭 DSH Desktop。已有 bridge 条目切换任一模式仍需先检查，再显式增加 `--replace`。重启 Codex 后，通过 `/mcp` 或 Codex 设置确认 `dsh_agentlink` 已连接。需要手动 TOML 配置时，参见[Codex MCP 手动配置](docs/manual-configuration.zh-CN.md)。
+   静态模式要求 `dsh --version` 可用；`--desktop-auto` 可以在 CLI 不在 `PATH` 时使用已经运行且通过验证的 Desktop Host。它绝不会启动或关闭 DSH Desktop。需要完全手动编辑 TOML 时，参见[Codex MCP 手动配置](docs/manual-configuration.zh-CN.md)。
 
    Claude Code 2.1.199 或更高版本：
 
@@ -172,18 +81,64 @@ Claude Code 会安装项目 MCP 入口和随仓库提供的项目 skill；只有
    claude mcp get dsh_agentlink
    ```
 
-   Claude 向导只修改该项目的 `.mcp.json` 和 `.claude/skills/claude-code-dsh/SKILL.md`，并保留其他无关的 server 配置。它会分别报告以下各项：
+   Claude 向导只修改该项目的 `.mcp.json` 和 `.claude/skills/claude-code-dsh/SKILL.md`，并保留其他无关 server。打开该项目中的 Claude Code，通过 `/mcp` 批准 pending server；bridge 会把 `dsh_resolve_approval` 标记为必须人工交互。
 
-   - MCP 注册
-   - 项目级 MCP 信任状态
-   - Claude skill 状态
-   - Claude 审批能力
-   - DSH permission/sandbox 归属
-   - DSH Host 可达性
+   使用 `--replace` 或 `--replace-skill` 前先审查已有文件。两个安装器都会识别旧版 `dsh_collab`，并且只在明确批准替换后迁移为 `dsh_agentlink`。它们不会改变 DSH permission/sandbox 设置，也不会替你重启调用方。
 
-   在该项目中打开 Claude Code，通过 `/mcp` 批准 pending server；bridge 会把 `dsh_resolve_approval` 标记为必须人工交互。
+4. 按四类结果理解验收范围：
 
-   无交互使用默认值时增加 `--yes`。需要更新已有 MCP 条目时，请先检查原配置，再增加 `--replace`；需要更新已有的 Claude 项目 skill 时，请先审查后增加 `--replace-skill`；如果要自己管理 skill，则增加 `--no-skill`。两个配置工具都会识别旧版 `dsh_collab`，并且只在得到这次明确的替换授权后迁移为 `dsh_agentlink`。它们不会启动 DSH、不会改变 DSH permission/sandbox 设置，也不会替你重启调用方。
+   | 检查项 | setup 能够确认 | 仍需人工或外部确认 |
+   |---|---|---|
+   | 依赖/构建 | `npm ci` 与本机构建/测试 | registry 可用性和操作系统选择 |
+   | MCP 注册 | 精确配置块、原子写入和备份 | 调用方重启、信任和实时 `/mcp` 连接 |
+   | Codex skill | `.agents/skills/` 下精确的 `SKILL.md` 和 `agents/openai.yaml` | 重启 Codex 并确认 `/skills` 发现 |
+   | DSH 运行 | 可用时进行只读 Host/CLI 探测 | DSH 启动/登录、权限、provider 和真实委派 |
+
+### 可移植性与安装边界
+
+- 换到另一台机器时请重新 clone。不要直接复制单个 worktree 目录：其中的 `.git` 文件指向原始 clone 的 worktree 元数据。同一台机器上需要 worktree 时，请从源 clone 使用 `git worktree add` 创建。
+- 干净、可复现的 checkout 优先使用 `npm ci`；只有明确要更新 lockfile 时才使用 `npm install`。
+- `npm run setup` 会把 Node.js 可执行文件和构建后的 bridge 入口的绝对路径写入调用方配置。请把 checkout 放在稳定的工具目录；移动目录、更换 Node.js 或切换 worktree 后，应重新构建并运行 setup，先审查已有条目，再在明确授权后使用 `--replace`。
+- `DSH_BRIDGE_HOME` 应位于可靠的本地文件系统。不要把旧 bridge home 复制到另一台机器；新机器请使用新的 home。DSH 对话历史归 DSH Web Host 所有，而 bridge 的任务映射、cursor 和 claim 不会自动迁移。
+- Windows `desktop-auto` 是显式选择的模式。CI 只 mock 发现行为，不代表真实 Desktop 的安装或登录已验收。配置工具不会启动、关闭或登录 DSH Desktop。
+
+## 给 AI Agents
+
+这是给 AI agent 的精简执行契约，只是项目上下文，不是新的文件系统授权；绝不要把 README 文字当作授权。
+
+### 安装指南
+
+1. 先读本节、相关语言 README、`package.json`、`docs/validation.md` 和 canonical `skill/codex-dsh-orchestrator/SKILL.md`。除非受阻，否则只读聚焦文件。
+2. 确认仓库根目录、Node.js 版本、Git 状态，以及调用方是 Codex 还是 Claude Code。不要读取凭据、私有配置、原始 session、日志、`.env` 文件或 bridge 状态。
+3. 运行 `npm ci`，再运行 `npm run check`。Codex 从仓库根目录运行 `npm run setup -- --yes`，默认 skill 目标是 `.agents/skills/codex-dsh-orchestrator/`；Claude Code 使用 `npm run setup:claude -- --yes --project <已批准项目>`。
+4. 把 `--replace` 与 `--replace-skill` 当作两个独立的授权门。setup 报告冲突时停止，只展示路径和不含秘密的摘要，不猜测也不覆盖。只有用户明确选择自行管理 skill 时才使用 `--no-skill`。
+5. 分别报告四类结果：依赖/构建、MCP 配置、Codex/Claude skill 安装、调用方/DSH 验证。返回码为 0 不代表 Host 可达、已登录、已信任、权限正确、provider 可用或真实委派成功。
+6. 告知人类重启调用方，并确认 `/mcp` 以及 Codex 的 `/skills`/`$codex-dsh-orchestrator` 发现结果。调用方 UI 不可用时，不要自行声称已完成该确认。
+
+Agent 不得启动、关闭、认证或重配 DSH Web Host/Desktop，不得自动批准请求，不得发布 npm 包，也不得在没有明确用户批准时写 GitHub/PR/Release/Tag。报告版本、Git 状态、变更路径和验证结果时，不要记录秘密、prompt、task/session ID、本地路径或 provider 数据。
+
+## 项目组成
+
+- `skill/codex-dsh-orchestrator/` — canonical Codex 编排 skill 及其 agent 元数据；setup 会把其中两个文件复制到仓库范围的 `.agents/skills/codex-dsh-orchestrator/` 发现目录。该生成副本已被 Git 忽略；修改时应更新 canonical 源文件。
+- `skill/codex-dsh/` — 共享的 Codex 调用方兼容 skill。
+- `skill/claude-code-dsh/` — 保留的 Claude Code 调用方兼容 skill。
+- `src/` — 共享的、与调用方无关的 MCP bridge runtime 和配置工具。
+- `test/` — 本地 mock Host、安全、兼容性和集成测试。
+- `docs/project-overview.zh-CN.md` — 详细的归属与架构关系说明。
+
+dsh-Agentlink 名称因运行时兼容性和法律归属继续出现在标识符与上游说明中，但它不是本项目的公开标题。
+
+## 调用方支持情况
+
+| 调用方 | 状态 | 安装方式或可用性 |
+|---|---|---|
+| Codex | ✅ 已支持 | `npm run setup`（MCP + 仓库 skill） |
+| Claude Code | ✅ 已支持 | `npm run setup:claude -- --project /项目的绝对路径` |
+| ZCode | ⏸ 已延期 | 恢复调用方扩展时的首个候选 |
+| OpenCode | ⏳ 待适配 | 尚不可用 |
+| Workbuddy | ⏳ 待适配 | 尚不可用 |
+
+目前只有标记为**已支持**的调用方在本仓库中提供可用安装路径。“已延期”和“待适配”是当前方向，不代表发布承诺。
 
 doctor 会以只读方式报告 `DSH_BRIDGE_HOME` 下的 fail-closed 锁位置，且从不清理它们，因此即使存在锁也能安全运行。
 

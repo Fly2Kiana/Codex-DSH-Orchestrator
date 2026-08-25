@@ -17,6 +17,9 @@ test("public docs and skill preserve connect-only, approval, cancellation, and r
   for (const phrase of [
     "connect-only",
     "approval_mode = \"prompt\"",
+    ".agents/skills/codex-dsh-orchestrator",
+    "--replace-skill",
+    "zero exit code does not prove",
     "dsh_release_workspace",
     "workspace claim semantics",
     "compact handoff",

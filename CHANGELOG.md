@@ -7,7 +7,8 @@ does not announce an npm publication.
 ## 0.1.0-alpha.4 — portability documentation candidate
 
 - Documented fresh-clone/worktree and stable-directory requirements.
-- Separated Codex MCP setup from Codex skill installation guidance.
+- Made Codex setup install the shipped repository-scoped skill by default, with `--no-skill`, `--skill-path`, and explicit `--replace-skill` conflict handling.
+- Reorganized human Quick Start and the compact AI-agent installation contract around the real MCP-plus-skill setup flow.
 - Documented the tested Node.js 22/24 matrix and DSH Desktop/bridge-home boundaries.
 - Kept the package private; this source candidate does not announce an npm publication.
 
