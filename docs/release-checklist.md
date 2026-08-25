@@ -41,6 +41,25 @@ with or endorsed by DeepSeek, OpenAI, or the dsh-Agentlink maintainers.
 - Verify that every third-party asset and copied source has a documented
   license or attribution.
 
+## Public privacy and provenance gate
+
+Before every public release:
+
+- Inspect the exact candidate tree for machine-specific paths, local usernames,
+  internal worktree names, maintenance-only references, agent-only execution
+  directives, credentials, private keys, tokens, hostnames, and real session
+  identifiers.
+- Inspect the complete commit history reachable from the release candidate for
+  the same classes of information. A clean current tree does not remove an
+  earlier exposed blob or commit.
+- Keep internal implementation plans, rollback instructions, and local
+  approval workflows in private maintenance storage unless they have been
+  rewritten as intentional public documentation.
+- If a violation is found, stop before creating a Tag, Release, or publishing
+  package artifacts. Remove it through review, record whether it remains in
+  reachable history, and obtain separate approval before any history rewrite
+  or repository rebuild.
+
 ## Functional validation
 
 From a clean checkout, run:
