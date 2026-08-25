@@ -299,7 +299,7 @@ These are planned directions, not implemented capabilities or release commitment
 | **Codex-DSH-Orchestrator** | This project — a Codex-first caller-side MCP bridge; runtime name `dsh_agentlink` |
 | [Codex](https://openai.com/index/introducing-the-codex-app/) / [Claude Code MCP](https://code.claude.com/docs/en/mcp) | Supported callers |
 | [DeepSeek Harness](https://www.deepseek.com/harness/en/) / [source repository](https://github.com/deepseek-ai/deepseek-harness) | The separately managed DSH Host ecosystem this bridge connects to |
-| DSH Desktop | A separately managed community DSH host that runs the upstream Web Host; its exact upstream repository is not identified by this project, so no repository link is guessed |
+| [DSH Desktop](https://github.com/anywhere-labs/dsh-desktop) | An independent community desktop client for DeepSeek Harness; this bridge can connect to its DSH Host through the opt-in Windows `--desktop-auto` mode |
 | [Model Context Protocol](https://modelcontextprotocol.io/) | Protocol foundation used by the bridge |
 | [dsh-Agentlink](https://github.com/hootandy321/dsh-Agentlink) | Upstream project and compatibility lineage; MIT license and NOTICE attribution are retained |
 
