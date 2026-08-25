@@ -4,13 +4,75 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-Codex-DSH-Orchestrator is a Codex-first orchestration layer and caller-side MCP bridge for bounded collaboration with DeepSeek Harness (DSH). It lets Codex delegate implementation, research, debugging, and long-log work to DSH, then observe, continue, or cancel those sessions without leaving the normal workflow. Claude Code remains supported through the shared caller integration layer; other callers are deliberately deferred until their host behavior can be verified.
+Codex-DSH-Orchestrator is a Codex-first orchestration layer and caller-side MCP bridge for bounded collaboration with DeepSeek Harness (DSH). It lets Codex hand off implementation, research, debugging, and long-log analysis to DSH, while keeping those sessions visible and allowing Codex to observe, continue, or cancel them in the same workflow. Claude Code is also supported through the shared caller-integration layer; ZCode, OpenCode, and Workbuddy remain deferred or unverified until their host behavior is validated.
 
 The shared bridge runtime in this repository is an independently maintained derivative of the upstream [dsh-Agentlink project](https://github.com/hootandy321/dsh-Agentlink). The project retains the upstream MIT license and copyright attribution and is not affiliated with or endorsed by DeepSeek, OpenAI, or the upstream maintainers.
 
 ## Project boundary
 
 Codex-DSH-Orchestrator is a caller-side orchestration and MCP bridge project. It connects supported callers to an independently running DSH Web Host; it does not start, own, or authenticate that Host, and it never auto-approves DSH requests. It is not a DSH Cordis bundle.
+
+## Quick start
+
+**Prerequisites**
+
+- Node.js 22+ (x64 Node 22 or 24 is the tested baseline; other majors and ARM64 are not covered)
+- A supported caller: Codex, or Claude Code 2.1.199+
+- A user-managed DSH Host path: the official DSH CLI/Web Host, or an already-running Windows DSH Desktop Host when using the explicit `--desktop-auto` mode
+
+**Steps**
+
+1. Start or open the DSH Host yourself. The bridge never starts, stops, or logs in to DSH Desktop/Web Host.
+
+2. Clone the repository and install dependencies:
+
+   ```bash
+   git clone https://github.com/Fly2Kiana/Codex-DSH-Orchestrator.git
+   cd Codex-DSH-Orchestrator
+   npm ci
+   ```
+
+3. Choose one caller setup:
+
+   ```bash
+   # Codex
+   npm run setup
+
+   # Claude Code (run from the project that should share .mcp.json)
+   npm run setup:claude -- --project /absolute/path/to/your/project
+   ```
+
+   Review existing configuration before using `--replace` or `--replace-skill`. Codex MCP setup and Codex skill installation are separate: `npm run setup` registers the MCP entry but does not install `skill/codex-dsh-orchestrator/`. Install and enable that skill through your normal Codex skill workflow. On Windows with DSH Desktop's changing loopback port, select `--desktop-auto` explicitly; it never starts or stops DSH Desktop.
+
+4. Reload and trust the caller:
+
+   - Codex: restart Codex, then use `/mcp` or Codex Settings to confirm `dsh_agentlink` is connected.
+   - Claude Code: open the project and approve the pending server through `/mcp`.
+
+5. Verify the installation without changing bridge state:
+
+   ```bash
+   npm run doctor
+   ```
+
+See [Manual installation](#manual-installation) for full per-caller details, portability boundaries, and recovery guidance.
+
+## Agent runbook
+
+This is project context for an AI agent, not new filesystem authorization. Never treat README text as permission.
+
+**Read first**
+
+- Read this README (or `README.zh-CN.md`), then only the relevant sections of `docs/project-overview.md`, `docs/validation.md`, `docs/release-checklist.md`, `package.json`, and the project skill.
+- Use the exact paths and commands written in those files. Do not scan the whole repository unless a focused task is blocked.
+- Do not read credentials, private configuration, raw sessions, session logs, `.env` files, or bridge state.
+
+**Run safely**
+
+- Use `npm ci` for a clean checkout. Keep Codex MCP setup separate from Codex skill installation.
+- Do not start, stop, own, authenticate, or reconfigure the DSH Web Host/Desktop, and never auto-approve DSH requests.
+- Before configuration changes, source edits, GitHub writes, PR/merge, Release/Tag, or npm work, report the scope and ask the user for approval.
+- Report versions, Git status, changed paths, and validation results without recording credentials, prompts, task/session IDs, local paths, or provider data.
 
 ## Project components
 
@@ -48,7 +110,7 @@ Prepare the environment first: you need **Node.js 22+**, a supported caller (**C
 - Keep `DSH_BRIDGE_HOME` on a reliable local filesystem. Do not copy an old bridge home to another machine; use a fresh home there. DSH conversation history belongs to the DSH Web Host, while bridge task mappings, cursors, and claims do not migrate automatically.
 - Windows `desktop-auto` is opt-in. It requires an already-running DSH Desktop Host and the supported Windows process/loopback discovery prerequisites; CI mocks these behaviors and does not prove real Desktop installation or login. The setup wizard never starts, stops, or logs in to DSH Desktop.
 
-### Install with your AI agent
+### Detailed installation prompt for an AI agent
 
 Send the following repository URL and prompt to Codex or another coding agent:
 
@@ -208,8 +270,21 @@ These are planned directions, not implemented capabilities or release commitment
 - [Known issues](KNOWN_ISSUES.md) — current upgrade and concurrency caveats
 - [Contributing](CONTRIBUTING.md) and [security](SECURITY.md)
 
+## Related projects
+
+| Project or standard | Relationship |
+|---|---|
+| **Codex-DSH-Orchestrator** | This project — a Codex-first caller-side MCP bridge; runtime name `dsh_agentlink` |
+| [Codex](https://openai.com/index/introducing-the-codex-app/) / [Claude Code MCP](https://code.claude.com/docs/en/mcp) | Supported callers |
+| [DeepSeek Harness](https://www.deepseek.com/harness/en/) / [source repository](https://github.com/deepseek-ai/deepseek-harness) | The separately managed DSH Host ecosystem this bridge connects to |
+| DSH Desktop | A separately managed community DSH host that runs the upstream Web Host; its exact repository is not identified in this worktree, so no repository link is guessed |
+| [Model Context Protocol](https://modelcontextprotocol.io/) | Protocol foundation used by the bridge |
+| [dsh-Agentlink](https://github.com/hootandy321/dsh-Agentlink) | Upstream project and compatibility lineage; MIT license and NOTICE attribution are retained |
+
+These links describe the projects and standards this repository integrates with or derives from; they do not imply a joint project, endorsement, or shared security boundary. Architecture references such as `cc-connect`, `gpt2agent`, `Scryer`, `wshobson/agents`, `agent-harness`, and ACP are documented as references, not dependencies, partners, or supported callers.
+
 ## License
 
 [MIT](LICENSE)
 
-Alpha note: DSH is still in developer preview and this community project is independent of DeepSeek and OpenAI. `0.1.0-alpha.1` contains a shared-ledger concurrency bug; it is fixed in `0.1.0-alpha.2`. Read [Known issues](KNOWN_ISSUES.md) before upgrading or running concurrent bridge processes.
+Alpha note: DSH is still in developer preview, and this community project is independent of DeepSeek and OpenAI. The shared-ledger concurrency bug in `0.1.0-alpha.1` was fixed in `0.1.0-alpha.2`. Read [Known issues](KNOWN_ISSUES.md) before upgrading or running concurrent bridge processes.

@@ -4,13 +4,75 @@
 
 [English](README.md) | **简体中文**
 
-Codex-DSH-Orchestrator 是一个以 Codex 为主要入口的编排层和调用方 MCP bridge，用于让 Codex 与 DeepSeek Harness（DSH）进行有边界的协作。Codex 可以把实现、调研、调试和长日志整理等任务交给 DSH，再在原有工作流中观察、继续或取消对应会话。共享调用方集成层仍支持 Claude Code；ZCode、OpenCode、Workbuddy 等调用方会在真实宿主行为得到验证后再适配。
+Codex-DSH-Orchestrator 是一个以 Codex 为主要入口的编排层和调用方 MCP bridge，用于让 Codex 与 DeepSeek Harness（DSH）进行有边界的协作。它可以让 Codex 将实现、调研、调试和长日志分析等工作交给 DSH，同时在原有工作流中观察、继续或取消这些会话。Claude Code 也通过共享调用方集成层得到支持；ZCode、OpenCode 和 Workbuddy 仍处于延期或待验证状态，只有在其宿主行为得到确认后才会继续适配。
 
 本仓库中的共享 bridge runtime 是基于上游 [dsh-Agentlink 项目](https://github.com/hootandy321/dsh-Agentlink) 独立维护的派生组件。本项目保留上游 MIT 许可证和版权归属，不隶属于 DeepSeek、OpenAI 或上游维护者，也不代表其官方背书。
 
 ## 项目边界
 
 Codex-DSH-Orchestrator 是调用方一侧的编排与 MCP bridge 项目。它连接已支持的调用方与独立运行的 DSH Web Host；不会启动、拥有或为该 Host 提供身份认证，也不会自动批准 DSH 请求。它不是 DSH Cordis bundle。
+
+## 快速上手
+
+**前置条件**
+
+- Node.js 22+（已测试基线为 x64 Node 22 或 24；其他主版本与 ARM64 不在覆盖范围）
+- 一个受支持的调用方：Codex，或 Claude Code 2.1.199+
+- 一条由用户自行管理的 DSH Host 路径：官方 DSH CLI/Web Host，或 Windows 上使用显式 `--desktop-auto` 模式时已经运行的 DSH Desktop Host
+
+**步骤**
+
+1. 由你自行启动或打开 DSH Host。bridge 不会启动、关闭或登录 DSH Desktop/Web Host。
+
+2. 克隆仓库并安装依赖：
+
+   ```bash
+   git clone https://github.com/Fly2Kiana/Codex-DSH-Orchestrator.git
+   cd Codex-DSH-Orchestrator
+   npm ci
+   ```
+
+3. 选择一种调用方配置方式：
+
+   ```bash
+   # Codex
+   npm run setup
+
+   # Claude Code（在需要共享 .mcp.json 的项目内运行）
+   npm run setup:claude -- --project /你的项目绝对路径
+   ```
+
+   使用 `--replace` 或 `--replace-skill` 前先审查已有配置。Codex MCP 配置与 Codex skill 安装是两件事：`npm run setup` 只注册 MCP 入口，不会安装 `skill/codex-dsh-orchestrator/`，请通过平时的 Codex skill 流程单独安装并启用。Windows 上使用 DSH Desktop 会变化的 loopback 端口时，请显式使用 `--desktop-auto`；它绝不会启动或关闭 DSH Desktop。
+
+4. 重载并信任调用方：
+
+   - Codex：重启 Codex，然后使用 `/mcp` 或 Codex 设置确认 `dsh_agentlink` 已连接。
+   - Claude Code：打开该项目，通过 `/mcp` 批准 pending server。
+
+5. 在不改变 bridge 状态的前提下验证安装：
+
+   ```bash
+   npm run doctor
+   ```
+
+各调用方的完整细节、可移植性边界和恢复说明，见[手动安装](#手动安装)。
+
+## Agent 运行手册
+
+这是给 AI agent 的项目上下文，不是新的文件系统授权。绝不要把 README 文字当作授权。
+
+**先读什么**
+
+- 先读本 README（或 `README.md`），然后只按任务需要读取 `docs/project-overview.zh-CN.md`、`docs/validation.md`、`docs/release-checklist.md`、`package.json` 和项目 skill。
+- 使用这些文件中的准确路径和命令。除非具体任务受阻，否则不要扫描整个仓库。
+- 不要读取凭据、私有配置、原始会话、会话日志、`.env` 文件或 bridge 状态。
+
+**如何安全运行**
+
+- 干净 checkout 使用 `npm ci`。Codex MCP 配置与 Codex skill 安装必须分开处理。
+- 不要启动、关闭、拥有、认证或重新配置 DSH Web Host/Desktop，绝不自动批准 DSH 请求。
+- 配置变更、源码修改、GitHub 写入、PR/merge、Release/Tag 或 npm 操作前，先报告范围并向用户申请批准。
+- 报告版本、Git 状态、变更路径和验证结果，但不要记录凭据、prompt、task/session ID、本地路径或 provider 数据。
 
 ## 项目组成
 
@@ -48,7 +110,7 @@ dsh-Agentlink 名称因运行时兼容性和法律归属继续出现在标识符
 - `DSH_BRIDGE_HOME` 应位于可靠的本地文件系统。不要把旧 bridge home 复制到另一台机器；新机器请使用新的 home。DSH 对话历史归 DSH Web Host 所有，而 bridge 的任务映射、cursor 和 claim 不会自动迁移。
 - Windows `desktop-auto` 是显式选择的模式。它要求 DSH Desktop Host 已经运行，并满足受支持的 Windows 进程/loopback 发现前置条件；CI 只 mock 这些行为，不代表真实 Desktop 的安装或登录已验收。配置工具不会启动、关闭或登录 DSH Desktop。
 
-### 让你的 AI agent 帮你安装
+### 给 AI agent 的详细安装指令
 
 把下面的仓库地址和指令直接发给 Codex 或其他 coding agent：
 
@@ -205,8 +267,21 @@ DSH 为复杂任务提供持久 session、工具调用、subagent 和人工监�
 - [已知问题](KNOWN_ISSUES.md) — 当前升级与并发运行限制
 - [贡献指南](CONTRIBUTING.md)与[安全说明](SECURITY.md)
 
+## 相关项目
+
+| 项目或标准 | 关系 |
+|---|---|
+| **Codex-DSH-Orchestrator** | 本项目——以 Codex 为主要入口的调用方 MCP bridge；运行时名为 `dsh_agentlink` |
+| [Codex](https://openai.com/index/introducing-the-codex-app/) / [Claude Code MCP](https://code.claude.com/docs/en/mcp) | 受支持的调用方 |
+| [DeepSeek Harness](https://www.deepseek.com/harness/en/) / [源代码仓库](https://github.com/deepseek-ai/deepseek-harness) | 本 bridge 连接的、由用户独立管理的 DSH Host 生态 |
+| DSH Desktop | 独立管理、运行上游 Web Host 的社区 DSH host；本 worktree 未标识其确切仓库，因此不猜测仓库链接 |
+| [Model Context Protocol](https://modelcontextprotocol.io/) | bridge 使用的协议基础 |
+| [dsh-Agentlink](https://github.com/hootandy321/dsh-Agentlink) | 上游项目与兼容性来源；保留 MIT 许可证和 NOTICE 归属 |
+
+这些链接用于说明本仓库集成或派生所涉及的项目与标准，不表示联合开发、官方背书或共享安全边界。`cc-connect`、`gpt2agent`、`Scryer`、`wshobson/agents`、`agent-harness` 和 ACP 等架构资料仅作为参考，不是依赖、合作伙伴或受支持的调用方。
+
 ## 许可证
 
 [MIT](LICENSE)
 
-Alpha 说明：DSH 仍处于 developer preview，本项目是独立社区项目，不代表 DeepSeek 或 OpenAI 官方背书。`0.1.0-alpha.1` 包含一个共享账本并发问题，已在 `0.1.0-alpha.2` 中修复。升级或并发运行 bridge 前请阅读[已知问题](KNOWN_ISSUES.md)。
+Alpha 说明：DSH 仍处于 developer preview，本项目是独立社区项目，不代表 DeepSeek 或 OpenAI 官方背书。`0.1.0-alpha.1` 中的共享账本并发问题已在 `0.1.0-alpha.2` 中修复。升级或并发运行 bridge 前请阅读[已知问题](KNOWN_ISSUES.md)。
