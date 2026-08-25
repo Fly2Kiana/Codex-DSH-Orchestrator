@@ -45,6 +45,47 @@ a successful setup exit code alone. Never start or stop DSH, approve requests, p
 write GitHub changes without my separate approval.
 ```
 
+### Human quick install (PowerShell)
+
+This block is for a person installing the Codex integration directly in PowerShell. It is not a remote installer and does not call a remote setup service. It clones or fast-forwards the repository, installs dependencies, builds the bridge, writes the intended Codex MCP configuration and repository skill, and runs the read-only doctor command. It does not start, stop, log in to, or reconfigure DSH, and it creates no credentials. A successful setup only proves that the local installation commands completed; DSH login or trust, caller restart, `/mcp`, `/skills`, and a real delegation remain separate acceptance steps. `npm run doctor` may report a warning when no Host is running.
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$repoUrl = 'https://github.com/Fly2Kiana/Codex-DSH-Orchestrator.git'
+$installDir = Join-Path $env:USERPROFILE 'Tools\Codex-DSH-Orchestrator'
+
+if (Test-Path -LiteralPath $installDir) {
+  if (-not (Test-Path -LiteralPath (Join-Path $installDir '.git'))) {
+    throw "The install directory exists but is not a Git checkout: $installDir"
+  }
+  Set-Location -LiteralPath $installDir
+  if (@(git status --porcelain).Count -ne 0) {
+    throw 'The existing checkout has local changes; review them before updating.'
+  }
+  git pull --ff-only
+  if ($LASTEXITCODE -ne 0) { throw 'git pull --ff-only failed.' }
+} else {
+  New-Item -ItemType Directory -Force (Split-Path -Parent $installDir) | Out-Null
+  git clone --single-branch $repoUrl $installDir
+  if ($LASTEXITCODE -ne 0) { throw 'git clone failed.' }
+  Set-Location -LiteralPath $installDir
+}
+
+npm ci
+if ($LASTEXITCODE -ne 0) { throw 'npm ci failed.' }
+npm run build
+if ($LASTEXITCODE -ne 0) { throw 'npm run build failed.' }
+npm run setup -- --yes
+if ($LASTEXITCODE -ne 0) { throw 'npm run setup failed.' }
+npm run doctor
+$doctorExitCode = $LASTEXITCODE
+if ($doctorExitCode -ne 0) {
+  Write-Warning 'doctor did not complete successfully; confirm that the DSH Host is running, then review the doctor output.'
+}
+```
+
+The block is intentionally for Codex. Claude Code uses the separate `setup:claude` flow. Existing MCP or skill conflicts are not silently overwritten; review them and supply `--replace` or `--replace-skill` only after explicit approval. Keep the checkout in a stable directory because setup records absolute paths.
+
 ### Manual installation
 
 1. Start or open the DSH Host yourself. The bridge never starts, stops, or logs in to DSH Desktop/Web Host.
@@ -102,7 +143,13 @@ write GitHub changes without my separate approval.
 - On another machine, use a fresh clone. Do not copy a single worktree directory: its `.git` file points to the source clone's worktree metadata. On the same machine, create worktrees from the source clone with `git worktree add`.
 - Prefer `npm ci` for a clean, reproducible checkout. Use `npm install` only when intentionally updating the lockfile.
 - `npm run setup` writes the absolute Node.js executable and built bridge entry point into the caller configuration. Keep the checkout in a stable tools directory; after moving it, changing Node.js, or switching worktrees, rebuild and run setup again, review existing entries, and use `--replace` only with explicit approval.
-- Keep `DSH_BRIDGE_HOME` on a reliable local filesystem. Do not copy an old bridge home to another machine; use a fresh home there. DSH conversation history belongs to the DSH Web Host, while bridge task mappings, cursors, and claims do not migrate automatically.
+- Keep `DSH_BRIDGE_HOME` on a reliable local filesystem. Multiple processes of this same bridge may share one bridge home when they follow the documented cooperative locking model; they do not each need a separate home. A different bridge implementation, an incompatible ledger or schema, or an independently managed bridge must not reuse this directory. When several bridges must coexist, give each one a separate local directory, for example:
+
+  ```powershell
+  $env:DSH_BRIDGE_HOME = Join-Path $env:USERPROFILE '.dsh\codex-dsh-orchestrator'
+  ```
+
+  Do not commit this path, and do not copy an old bridge home to another machine — use a fresh home there. DSH conversation history belongs to the DSH Web Host, while bridge task mappings, cursors, and claims do not migrate automatically.
 - Windows `desktop-auto` is opt-in. CI mocks discovery behavior and does not prove real Desktop installation or login. The setup wizard never starts, stops, or logs in to DSH Desktop.
 
 ## For AI Agents
@@ -145,7 +192,7 @@ Only callers marked **Supported** have an installation path in this repository t
 
 The doctor reports the bridge's fail-closed lock locations under `DSH_BRIDGE_HOME` read-only and never cleans them, so it is safe to run even when a lock is present.
 
-This source patch stops new projection/chunk floods from expanding the coordination ledger, but it does not compact an existing 5 MB+ ledger. Preserve the old bridge home for inspection; new delegations can use a separate `DSH_BRIDGE_HOME`. DSH `session.history`, not the bridge ledger, remains the conversation source of truth. See [Known issues](KNOWN_ISSUES.md) for the conservative recovery boundary.
+This source patch stops new projection/chunk floods from expanding the coordination ledger, but it does not compact an existing 5 MB+ ledger. Preserve the old bridge home for inspection; new delegations can use another independent `DSH_BRIDGE_HOME` when isolation is needed. DSH `session.history`, not the bridge ledger, remains the conversation source of truth. See [Known issues](KNOWN_ISSUES.md) for the conservative recovery boundary.
 
 This bridge (runtime name `dsh_agentlink`) is a caller-side plugin, not a DSH Cordis bundle. Do not install it with `dsh plugin --profile ... add ...`.
 
@@ -234,7 +281,7 @@ These are planned directions, not implemented capabilities or release commitment
 | **Codex-DSH-Orchestrator** | This project — a Codex-first caller-side MCP bridge; runtime name `dsh_agentlink` |
 | [Codex](https://openai.com/index/introducing-the-codex-app/) / [Claude Code MCP](https://code.claude.com/docs/en/mcp) | Supported callers |
 | [DeepSeek Harness](https://www.deepseek.com/harness/en/) / [source repository](https://github.com/deepseek-ai/deepseek-harness) | The separately managed DSH Host ecosystem this bridge connects to |
-| DSH Desktop | A separately managed community DSH host that runs the upstream Web Host; its exact repository is not identified in this worktree, so no repository link is guessed |
+| DSH Desktop | A separately managed community DSH host that runs the upstream Web Host; its exact upstream repository is not identified by this project, so no repository link is guessed |
 | [Model Context Protocol](https://modelcontextprotocol.io/) | Protocol foundation used by the bridge |
 | [dsh-Agentlink](https://github.com/hootandy321/dsh-Agentlink) | Upstream project and compatibility lineage; MIT license and NOTICE attribution are retained |
 

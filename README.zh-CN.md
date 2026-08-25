@@ -42,6 +42,47 @@ skill 时才使用 --no-skill。Claude Code 运行 npm run setup:claude -- --yes
 发布 npm 包或写入 GitHub，除非我另行批准。
 ```
 
+### 面向人类的快速安装（PowerShell）
+
+下面的代码块由人类在 PowerShell 中直接运行，面向 Codex，不是远程安装脚本，也不会调用远程安装服务。它会 clone 或 fast-forward 仓库、安装依赖、构建 bridge、写入预期的 Codex MCP 配置和仓库 skill，并运行只读的 doctor 命令。它不会启动、关闭、登录或重新配置 DSH，也不会创建凭据。运行成功只表示本地安装命令完成；DSH 登录或信任、调用方重启、`/mcp`、`/skills` 和真实委派仍需单独验收。没有运行 Host 时，`npm run doctor` 可能只会给出警告。
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$repoUrl = 'https://github.com/Fly2Kiana/Codex-DSH-Orchestrator.git'
+$installDir = Join-Path $env:USERPROFILE 'Tools\Codex-DSH-Orchestrator'
+
+if (Test-Path -LiteralPath $installDir) {
+  if (-not (Test-Path -LiteralPath (Join-Path $installDir '.git'))) {
+    throw "The install directory exists but is not a Git checkout: $installDir"
+  }
+  Set-Location -LiteralPath $installDir
+  if (@(git status --porcelain).Count -ne 0) {
+    throw 'The existing checkout has local changes; review them before updating.'
+  }
+  git pull --ff-only
+  if ($LASTEXITCODE -ne 0) { throw 'git pull --ff-only failed.' }
+} else {
+  New-Item -ItemType Directory -Force (Split-Path -Parent $installDir) | Out-Null
+  git clone --single-branch $repoUrl $installDir
+  if ($LASTEXITCODE -ne 0) { throw 'git clone failed.' }
+  Set-Location -LiteralPath $installDir
+}
+
+npm ci
+if ($LASTEXITCODE -ne 0) { throw 'npm ci failed.' }
+npm run build
+if ($LASTEXITCODE -ne 0) { throw 'npm run build failed.' }
+npm run setup -- --yes
+if ($LASTEXITCODE -ne 0) { throw 'npm run setup failed.' }
+npm run doctor
+$doctorExitCode = $LASTEXITCODE
+if ($doctorExitCode -ne 0) {
+  Write-Warning 'doctor did not complete successfully; confirm that the DSH Host is running, then review the doctor output.'
+}
+```
+
+这个代码块专门面向 Codex；Claude Code 使用独立的 `setup:claude` 流程。已有 MCP 或 skill 冲突时不会静默覆盖；只有在明确批准后，才审查并提供 `--replace` 或 `--replace-skill`。请把 checkout 保存在稳定目录，因为 setup 会记录绝对路径。
+
 ### 手动安装
 
 1. 由你自行启动或打开 DSH Host。bridge 不会启动、关闭或登录 DSH Desktop/Web Host。
@@ -99,7 +140,13 @@ skill 时才使用 --no-skill。Claude Code 运行 npm run setup:claude -- --yes
 - 换到另一台机器时请重新 clone。不要直接复制单个 worktree 目录：其中的 `.git` 文件指向原始 clone 的 worktree 元数据。同一台机器上需要 worktree 时，请从源 clone 使用 `git worktree add` 创建。
 - 干净、可复现的 checkout 优先使用 `npm ci`；只有明确要更新 lockfile 时才使用 `npm install`。
 - `npm run setup` 会把 Node.js 可执行文件和构建后的 bridge 入口的绝对路径写入调用方配置。请把 checkout 放在稳定的工具目录；移动目录、更换 Node.js 或切换 worktree 后，应重新构建并运行 setup，先审查已有条目，再在明确授权后使用 `--replace`。
-- `DSH_BRIDGE_HOME` 应位于可靠的本地文件系统。不要把旧 bridge home 复制到另一台机器；新机器请使用新的 home。DSH 对话历史归 DSH Web Host 所有，而 bridge 的任务映射、cursor 和 claim 不会自动迁移。
+- `DSH_BRIDGE_HOME` 应位于可靠的本地文件系统。同一个 bridge 的多个进程只要遵循文档中的协作锁模型，就可以共用同一个 bridge home，不必各自新建。其他 bridge 实现、ledger 或 schema 不兼容的版本，以及独立管理的 bridge，都不得复用这个目录。多个 bridge 需要共存时，请为每个 bridge 使用独立的本地目录，例如：
+
+  ```powershell
+  $env:DSH_BRIDGE_HOME = Join-Path $env:USERPROFILE '.dsh\codex-dsh-orchestrator'
+  ```
+
+  不要提交这个路径，也不要把旧 bridge home 复制到另一台机器——新机器请使用新的 home。DSH 对话历史归 DSH Web Host 所有，而 bridge 的任务映射、cursor 和 claim 不会自动迁移。
 - Windows `desktop-auto` 是显式选择的模式。CI 只 mock 发现行为，不代表真实 Desktop 的安装或登录已验收。配置工具不会启动、关闭或登录 DSH Desktop。
 
 ## 给 AI Agents
@@ -142,7 +189,7 @@ dsh-Agentlink 名称因运行时兼容性和法律归属继续出现在标识符
 
 doctor 会以只读方式报告 `DSH_BRIDGE_HOME` 下的 fail-closed 锁位置，且从不清理它们，因此即使存在锁也能安全运行。
 
-当前源码补丁会阻止新的 projection/chunk 洪峰继续扩大 coordination ledger，但不会自动压缩已有的 5 MB 以上 ledger。请保留旧 bridge home 备查；新的委派可以选择独立的 `DSH_BRIDGE_HOME`。对话真源始终是 DSH `session.history`，不是 bridge ledger。保守恢复边界见[已知问题](KNOWN_ISSUES.md)。
+当前源码补丁会阻止新的 projection/chunk 洪峰继续扩大 coordination ledger，但不会自动压缩已有的 5 MB 以上 ledger。请保留旧 bridge home 备查；需要隔离时，新的委派可以另用一个独立的 `DSH_BRIDGE_HOME`。对话真源始终是 DSH `session.history`，不是 bridge ledger。保守恢复边界见[已知问题](KNOWN_ISSUES.md)。
 
 这个 bridge（运行时名称为 `dsh_agentlink`）安装在调用方一侧，不是 DSH Cordis bundle；请不要使用 `dsh plugin --profile ... add ...` 安装。
 
@@ -229,7 +276,7 @@ DSH 为复杂任务提供持久 session、工具调用、subagent 和人工监�
 | **Codex-DSH-Orchestrator** | 本项目——以 Codex 为主要入口的调用方 MCP bridge；运行时名为 `dsh_agentlink` |
 | [Codex](https://openai.com/index/introducing-the-codex-app/) / [Claude Code MCP](https://code.claude.com/docs/en/mcp) | 受支持的调用方 |
 | [DeepSeek Harness](https://www.deepseek.com/harness/en/) / [源代码仓库](https://github.com/deepseek-ai/deepseek-harness) | 本 bridge 连接的、由用户独立管理的 DSH Host 生态 |
-| DSH Desktop | 独立管理、运行上游 Web Host 的社区 DSH host；本 worktree 未标识其确切仓库，因此不猜测仓库链接 |
+| DSH Desktop | 独立管理、运行上游 Web Host 的社区 DSH host；本项目未指明其确切的上游仓库，因此不猜测仓库链接 |
 | [Model Context Protocol](https://modelcontextprotocol.io/) | bridge 使用的协议基础 |
 | [dsh-Agentlink](https://github.com/hootandy321/dsh-Agentlink) | 上游项目与兼容性来源；保留 MIT 许可证和 NOTICE 归属 |
 
