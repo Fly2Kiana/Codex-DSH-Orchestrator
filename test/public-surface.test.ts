@@ -35,12 +35,13 @@ async function collectRepositoryFiles(directory: string, relativeDirectory = "")
 }
 
 test("public documentation identifies Codex-DSH-Orchestrator at the repository entry point", async () => {
-  const [readme, readmeZh, overview, changelog, gitignore] = await Promise.all([
+  const [readme, readmeZh, overview, changelog, gitignore, validation] = await Promise.all([
     readFile(new URL("README.md", root), "utf8"),
     readFile(new URL("README.zh-CN.md", root), "utf8"),
     readFile(new URL("docs/project-overview.md", root), "utf8"),
     readFile(new URL("CHANGELOG.md", root), "utf8"),
     readFile(new URL(".gitignore", root), "utf8"),
+    readFile(new URL("docs/validation.md", root), "utf8"),
   ]);
 
   for (const [label, document] of [
@@ -59,7 +60,15 @@ test("public documentation identifies Codex-DSH-Orchestrator at the repository e
       /\[DSH Desktop\]\(https:\/\/github\.com\/anywhere-labs\/dsh-desktop\)/,
       label + " must identify the DSH Desktop repository",
     );
+    assert.match(
+      document,
+      /\[ModLens\]\(https:\/\/github\.com\/liustack\/modlens\)/,
+      label + " must identify the ModLens repository",
+    );
   }
+
+  assert.match(readme, /Not maintained by or affiliated with this project/);
+  assert.match(readmeZh, /本项目不维护 ModLens，也不与其存在隶属关系/);
 
   assert.doesNotMatch(readme, /exact upstream repository is not identified/i);
   assert.doesNotMatch(readmeZh, /未指明其确切的上游仓库/);
@@ -99,6 +108,11 @@ test("public documentation identifies Codex-DSH-Orchestrator at the repository e
   assert.match(overview, /^# Codex-DSH-Orchestrator project overview$/m);
   assert.match(changelog, /^## 0\.1\.0-alpha\.2 — source snapshot$/m);
   assert.match(gitignore, /^\/\.agents\/skills\/codex-dsh-orchestrator\/$/m);
+  assert.match(validation, /^# Validation guide$/m);
+  assert.match(validation, /^## Visual routing validation$/m);
+  assert.doesNotMatch(validation, /[A-Za-z]:[\\/]+Users[\\/]+/i);
+  assert.doesNotMatch(validation, /refs[\\/]backup[\\/]/i);
+  assert.doesNotMatch(validation, /\b(?:task|session)\s+id\b/i);
 });
 
 test("public source snapshot preserves license, attribution, and compatibility metadata", async () => {

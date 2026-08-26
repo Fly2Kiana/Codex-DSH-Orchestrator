@@ -4,6 +4,18 @@ This file records user-visible changes to Codex-DSH-Orchestrator. The project
 is distributed as source code; `package.json` remains private and this file
 does not announce an npm publication.
 
+## Unreleased
+
+- Added a bounded visual-routing policy: non-visual routine and difficult work
+  keeps the existing Flash/Pro distinction; low-complexity visual work uses
+  the official native Flash Vision route.
+- High-complexity visual work now requires an explicit choice between official
+  Flash Vision and ModLens Pro. ModLens Flash remains a one-time fallback only
+  after bounded timeout, unreachable-Host, or HTTP 5xx failures; other failure
+  classes remain fail-closed.
+- Added non-sensitive fallback status reporting and regression coverage for
+  prompt-failure handling and legacy explicit model-profile compatibility.
+
 ## 0.1.0-alpha.4 — portability documentation candidate
 
 - Documented fresh-clone/worktree and stable-directory requirements.

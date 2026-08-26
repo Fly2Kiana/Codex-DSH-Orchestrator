@@ -247,10 +247,10 @@ DSH 为复杂任务提供持久 session、工具调用、subagent 和人工监�
 - `dsh_host_status` — 读取 connect-only Host 状态与 capabilities
 - `dsh_find_sessions` — 只读取已有 root session 的有界元数据；不读取 history 或返回 raw projections
 - `dsh_attach_session` — 使用精确 id/title/cwd/update 前置条件安全接管一个空闲 root session；不发送 prompt 或改变模型
-- `dsh_delegate` — 创建 root session 并排队初始 prompt；可选 `inherit|flash|pro|modlens-flash|modlens-pro` 和 catalog 支持的 `reasoningEffort`；默认 detached（`waitSeconds=0`）；`workspaceMode` 是 bridge-local claim，不是 DSH sandbox selector
+- `dsh_delegate` — 创建 root session 并排队初始 prompt；可选 `inherit|flash|pro|official-flash-vision|modlens-flash|modlens-pro` 和 catalog 支持的 `reasoningEffort`，或声明 `visualIntent="required"` 加 `complexity="low"|"high"` 走视觉策略；默认 detached（`waitSeconds=0`）；`workspaceMode` 是 bridge-local claim，不是 DSH sandbox selector
 - `dsh_followup` — 以显式 `mode="queue"|"steer"` 继续同一个 root session；默认 `queue`；可在 prompt 前选择相同的语义模型档位与已校验 reasoning effort
 - `dsh_continue` — `dsh_followup` 的兼容别名
-- `dsh_status` — 返回 availability、execution、lineage、queue、pending interaction、final message、cursors 和 workspace claim semantics
+- `dsh_status` — 返回 availability、execution、lineage、queue、pending interaction、final message、cursors、visual fallback 标记和 workspace claim semantics
 - `dsh_tail` — 使用 bridge task cursor 读取有界事件摘要
 - `dsh_wait` — 最多等待 30 秒，直到出现 durable event、状态变化、pending interaction 或 terminal 状态
 - `dsh_observe` — `dsh_wait` 的兼容别名；bridge cursor 取代原始 per-session seq cursor
@@ -260,9 +260,11 @@ DSH 为复杂任务提供持久 session、工具调用、subagent 和人工监�
 - `dsh_resolve_approval` — 对 pending approval rpcId 提交 `allow_once|reject`
 - `dsh_release_workspace` — 显式释放持久化 workspace claim，但不关闭 DSH session
 
-模型路由对委派与 follow-up 都是可选且向后兼容的。省略 `modelProfile` 和 `reasoningEffort` 时，操作只读取 `session.models.current`、验证 `routable`，不会调用 `session.selectModel`。语义映射为：`flash`/`pro` -> `deepseek-official/deepseek-v4-{flash,pro}`，`modlens-flash`/`modlens-pro` -> `deepseek-modlens/deepseek-v4-{flash,pro}`。请求的 provider、model 和推理等级必须存在于实时 `session.models` catalog 中。bridge 会在初始或 follow-up prompt 前完成选择并重新读取验证；任何不一致都会失败关闭，不发送该 prompt。
+模型路由对委派与 follow-up 都是可选且向后兼容的。省略 `modelProfile` 和 `reasoningEffort` 时，操作只读取 `session.models.current`、验证 `routable`，不会调用 `session.selectModel`。语义映射为：`flash`/`pro` -> `deepseek-official/deepseek-v4-{flash,pro}`，`official-flash-vision` -> `deepseek-official/deepseek-v4-flash-vision-exp`，`modlens-flash`/`modlens-pro` -> `deepseek-modlens/deepseek-v4-{flash,pro}`。请求的 provider、model 和推理等级必须存在于实时 `session.models` catalog 中。bridge 会在初始或 follow-up prompt 前完成选择并重新读取验证；任何不一致都会失败关闭，不发送该 prompt。视觉必需（visual-required）请求只会对选择/验证阶段做有界重试，且仅在每次失败都是明确分类的强制因素（timeout、Host 不可达或 HTTP 5xx）时进行；这些重试耗尽后，bridge 只会尝试 ModLens Flash 一次。prompt 写入本身永不重试。
 
-用户明确指定永远优先。用户未指定时，主调用方可以保持 `inherit`；常规搜索、实现和测试修复使用 Flash；架构设计或困难的多步骤调试使用 Pro；视觉证据不可缺少时使用对应的 ModLens 档位。dsh-Agentlink 只传输文本 prompt：请把 DSH Host 与 ModLens 工具可访问的本地图片绝对路径写进 prompt；bridge 不上传图片字节。`selectionReason` 可记录调用方为何做出显式或自主选择，但不会发送给 DSH。
+用户明确指定永远优先。用户未指定时，主调用方可以保持 `inherit`；常规搜索、实现和测试修复使用 Flash；架构设计或困难的多步骤调试使用 Pro。视觉工作必须显式声明 `visualIntent="required"` 与 `complexity`：低复杂度自动选择官方原生 Flash Vision；高复杂度必须由用户在 `official-flash-vision` 与 `modlens-pro` 之间明确选择，否则在发送任何内容前以 `user_choice_required` 失败关闭。`modlens-flash` 绝不是首选：只有当获批视觉路线在有界重试内全部因明确分类的强制因素失败后，bridge 才会自动尝试 ModLens Flash 一次。无效输入、模型缺失、协议/配置错误、权限或凭据拒绝都不会触发 fallback。fallback 被使用时，结果会携带 `visualRouting.fallback` 与简短非敏感提示，并通过 `dsh_status.visualFallback` 暴露最小协调标记；调用方必须在任务结束时用该提示简要告知用户。dsh-Agentlink 只传输文本 prompt：请把 DSH Host 与 ModLens 工具可访问的本地图片绝对路径写进 prompt；bridge 不上传图片字节。`selectionReason` 可记录调用方为何做出显式或自主选择，但不会发送给 DSH。
+
+在本机验证过的 DSH rc.6 collapsed Code Mode 路径上，ModLens 视觉 handoff 使用外层 `run_code` 传输，并在该程序内通过注入的 `tools` SDK 调用已注册的 `modlens_read_image`；官方原生 Flash Vision 使用其原生视觉路径。调用方应把 ModLens 的外层事件视为预期行为，禁止 shell/browser/OCR/图像库绕过，并等待嵌套结果或明确的嵌套/终止错误。插件文档中的内部 timeout 不是整体委派 deadline。这是限定版本的兼容性指引；后续 Host 如行为不同，应以实测的 live capability 为准。
 
 **DSH rc.6 的重要副作用：** `session.selectModel` 也会把本次选择保存成 DSH 的全局默认值，影响后续 session。显式选择时，delegate 与 follow-up 返回结果都会包含 `modelRouting.persistsAsDshDefault=true` 和警告。如果不接受这个持久化副作用，请省略路由字段。如果写入模型选择后验证失败，则不会发送 prompt，但该选择可能已经成为全局默认值。
 
@@ -295,10 +297,11 @@ DSH 为复杂任务提供持久 session、工具调用、subagent 和人工监�
 | [Codex](https://openai.com/index/introducing-the-codex-app/) / [Claude Code MCP](https://code.claude.com/docs/en/mcp) | 受支持的调用方 |
 | [DeepSeek Harness](https://www.deepseek.com/harness/en/) / [源代码仓库](https://github.com/deepseek-ai/deepseek-harness) | 本 bridge 连接的、由用户独立管理的 DSH Host 生态 |
 | [DSH Desktop](https://github.com/anywhere-labs/dsh-desktop) | DeepSeek Harness 的独立社区桌面客户端；本 bridge 可通过 Windows 的可选 `--desktop-auto` 模式连接其 DSH Host |
+| [ModLens](https://github.com/liustack/modlens) | 面向纯文本 coding agent 的独立视觉插件与桥接项目；其 `deepseek-modlens` 模型可出现在 DSH catalog 中，供本 bridge 的可选视觉路径使用。按照本 bridge 的默认视觉策略，ModLens Pro 是高复杂度视觉工作的明确备选；ModLens Flash 绝不是默认或首选——只有在获批视觉路由因强制因素（timeout、Host 不可达、HTTP 5xx）耗尽有界重试后，bridge 才恰好尝试它一次，调用方在任务结束时告知用户。用户明确指定的路由仍按兼容性规则优先。本项目不维护 ModLens，也不与其存在隶属关系 |
 | [Model Context Protocol](https://modelcontextprotocol.io/) | bridge 使用的协议基础 |
 | [dsh-Agentlink](https://github.com/hootandy321/dsh-Agentlink) | 上游项目与兼容性来源；保留 MIT 许可证和 NOTICE 归属 |
 
-这些链接用于说明本仓库集成或派生所涉及的项目与标准，不表示联合开发、官方背书或共享安全边界。`cc-connect`、`gpt2agent`、`Scryer`、`wshobson/agents`、`agent-harness` 和 ACP 等架构资料仅作为参考，不是依赖、合作伙伴或受支持的调用方。
+这些链接用于说明本仓库集成、使用或派生所涉及的项目与标准，不表示联合开发、官方背书、共同维护或共享安全边界。`cc-connect`、`gpt2agent`、`Scryer`、`wshobson/agents`、`agent-harness` 和 ACP 等架构资料仅作为参考，不是依赖、合作伙伴或受支持的调用方。
 
 ## 许可证
 

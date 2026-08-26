@@ -9,7 +9,7 @@ This file records deliberately deferred work so a future development session can
 - One shared connect-only MCP Runtime for Codex and Claude Code.
 - Verified Windows DSH Desktop loopback discovery without port scanning or Host lifecycle ownership.
 - New delegation, known-task follow-up, bounded observation, cancellation, typed questions, and human-gated approvals.
-- Catalog-validated `flash`, `pro`, `modlens-flash`, and `modlens-pro` routing plus advertised reasoning effort; omission inherits the DSH route.
+- Catalog-validated `flash`, `pro`, `official-flash-vision`, `modlens-flash`, and `modlens-pro` routing plus advertised reasoning effort; omission inherits the DSH route.
 - Metadata-only discovery and explicit attachment of one exact idle root DSH session using fresh id/update/cwd/title preconditions.
 - Caller-guided compact handoff through MCP initialization instructions and tool descriptions. Agentlink does not read caller chat or workspace files by itself.
 
@@ -55,14 +55,14 @@ This file records deliberately deferred work so a future development session can
    - Activate only with observed crash residue or an approved state-format migration. The current transaction handles ordinary claim rejection and runtime exceptions, but does not claim filesystem transaction semantics across two files.
 
 9. **ModLens provider resilience and data-egress policy**
-   - Deferred work: upstream timeout passthrough and structured timeout `nextSteps`, evidence-based image downscale/retry, and an optional second vision-provider failover route.
+   - Deferred work: upstream timeout passthrough and structured timeout `nextSteps`, evidence-based image downscale/retry, and an optional second vision-provider failover route beyond the implemented single-attempt ModLens Flash terminal fallback.
    - Activate only after choosing upstream contribution versus a maintained local fork, and after the operator approves provider credentials, cost, data egress, image-fidelity tradeoffs, and disposable acceptance tests. Agentlink must not automatically rewrite profiles, authentication, provider routes, proxy, DNS, or other network settings.
 
 ## Still out of scope
 
 - Starting, stopping, restarting, installing, or reconfiguring DSH Desktop/Web Host.
 - Automatic DSH plugin installation or authentication/profile migration.
-- Automatic provider failover, image preprocessing/retry, or DSH profile/network changes.
+- General automatic provider failover (beyond the implemented single-attempt ModLens Flash visual fallback), image preprocessing/retry, or DSH profile/network changes.
 - Semantic matching over prior DSH conversation bodies or automatic reuse based only on similar wording.
 - Arbitrary provider/model strings, automatic approval, credential transport, or bridge persistence of conversation bodies.
 - npm publication or a native DSH bundle without a separate release and security decision.

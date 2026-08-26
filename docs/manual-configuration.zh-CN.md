@@ -62,7 +62,7 @@ DSH_HOST_MODE = "desktop-auto"
 - `DSH_APPROVAL_TIMEOUT_MS` — 默认关闭；启用后，仅在当前 bridge 进程和连接仍存活时尝试一次 best-effort reject
 - `DSH_ALLOW_REMOTE_HOST=true` — 显式允许受信任的非 loopback Host
 
-委派和 follow-up 只接受语义档位 `inherit|flash|pro|modlens-flash|modlens-pro` 与实时 catalog 支持的 reasoning effort；任意 provider/model 字符串会被拒绝。省略路由时继承并验证 DSH 当前 route。显式选择可能持久化为 DSH 全局默认值。`workspaceMode` 只是 bridge-local cooperative claim，不会选择、执行或验证 DSH Host filesystem sandbox。
+委派和 follow-up 只接受语义档位 `inherit|flash|pro|official-flash-vision|modlens-flash|modlens-pro` 与实时 catalog 支持的 reasoning effort；任意 provider/model 字符串会被拒绝。省略路由时继承并验证 DSH 当前 route。显式选择可能持久化为 DSH 全局默认值。视觉工作应声明 `visualIntent=required` 与 `complexity=low|high`：低复杂度使用官方原生 Flash Vision；高复杂度必须由用户在 `official-flash-vision` 与 `modlens-pro` 之间明确选择。只有视觉路由选择/验证阶段可以重试，且仅限 timeout、Host 不可达或 HTTP 5xx；这些有界重试耗尽后，ModLens Flash 只尝试一次，并在任务结束时披露。无效输入、模型缺失、协议/配置错误以及权限或凭据拒绝不会触发 fallback。如果省略视觉策略字段，显式提供的旧式 `modlens-flash` 档位仍为兼容性保留；它不是默认视觉路由。`workspaceMode` 只是 bridge-local cooperative claim，不会选择、执行或验证 DSH Host filesystem sandbox。
 
 ## Host 与版本说明
 

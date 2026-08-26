@@ -6,7 +6,7 @@ import { DelegationSetupError } from "./bridge-service.js";
 import { PendingInteractionError } from "./connection-manager.js";
 import { DshRpcError, DshTransportError } from "./dsh-client.js";
 import { EventLedgerError } from "./event-ledger.js";
-import { modelProfiles } from "./model-routing.js";
+import { modelProfiles, type Complexity, type VisualIntent } from "./model-routing.js";
 import { PACKAGE_VERSION } from "./version.js";
 
 const taskIdSchema = z.string().regex(/^dsh_[a-f0-9]{12}$/);
@@ -17,7 +17,8 @@ export const serverInstructions =
   "Before dsh_delegate, build a compact handoff in prompt from known progress and read-only workspace evidence: objective, completed work, Git HEAD/status and changed paths when available, focus paths, relevant tests, constraints, and unresolved issues. Tell DSH to read focus paths first and avoid repo-wide scanning unless blocked. Never include secrets, raw large diffs, file bodies, Codex chat, or internal reasoning. User context and routes win. For the same known BridgeTask use dsh_followup; never guess an old task id. Reuse the same known BridgeTask for the same workstream; across caller tasks, metadata discovery may narrow candidates by exact cwd/mapping/idle state, but ambiguous or merely similar candidates must not be guessed. " +
   "For a new Codex caller with explicit continuation evidence, use metadata-only dsh_find_sessions with the exact canonical cwd plus mappedOnly and idleOnly; require exactly one unique candidate and fresh exact sessionId/updatedAt/cwd/title preconditions before dsh_attach_session in exclusive-write mode, then use dsh_followup on the same BridgeTask. Only when there is no known task and no safe explicit continuation should the caller use fresh delegation; never select by title or similarity. " +
   "When the user explicitly identifies an existing DSH Desktop session, call dsh_find_sessions, require one intended root result, then attach using its exact sessionId plus the returned updatedAt/cwd/title preconditions. Never attach by title alone or guess an id. dsh_attach_session does not prompt or change the model; send a compact handoff with dsh_followup only after attachment. If that follow-up explicitly routes a model, apply the same user-priority/catalog-validation rules as delegation and disclose that session.selectModel persists the DSH global default. " +
-  "Only when there is no known matching BridgeTask and no safe explicit continuation evidence should the caller use fresh delegation. This is caller guidance, not new filesystem authorization; dsh-Agentlink does not receive prior caller conversation state automatically.";
+  "Only when there is no known matching BridgeTask and no safe explicit continuation evidence should the caller use fresh delegation. This is caller guidance, not new filesystem authorization; dsh-Agentlink does not receive prior caller conversation state automatically. " +
+  "For visual work, declare visualIntent=required with complexity. Visual low complexity routes to the official native Flash Vision. Visual high complexity requires an explicit user choice between modelProfile official-flash-vision and modlens-pro; never choose silently. modlens-flash is never a first visual choice under the declared visual policy: only after the approved visual route exhausts bounded retries caused by timeout, unreachable Host, or HTTP 5xx does the bridge attempt ModLens Flash once. If visual policy fields are omitted, an explicitly supplied legacy modlens-flash route remains compatible. If a delegate or followup result reports visualRouting.fallback.used=true, briefly tell the user at task end using the short non-sensitive notice the result provides.";
 
 function result(value: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] };
@@ -44,6 +45,7 @@ function errorBody(error: unknown): Record<string, unknown> {
       message: error.message,
       sessionId: error.sessionId,
       taskId: error.taskId,
+      ...(error.failureClass === undefined ? {} : { failureClass: error.failureClass }),
     };
   }
   if (error instanceof Error) {
@@ -71,12 +73,16 @@ function followupOptions(input: {
   modelProfile?: (typeof modelProfiles)[number] | undefined;
   reasoningEffort?: string | undefined;
   selectionReason?: string | undefined;
+  visualIntent?: VisualIntent | undefined;
+  complexity?: Complexity | undefined;
 }): FollowupOptions {
   return {
     ...writePreconditions(input.sinceCursor, input.expectedRevision),
     ...(input.modelProfile === undefined ? {} : { modelProfile: input.modelProfile }),
     ...(input.reasoningEffort === undefined ? {} : { reasoningEffort: input.reasoningEffort }),
     ...(input.selectionReason === undefined ? {} : { selectionReason: input.selectionReason }),
+    ...(input.visualIntent === undefined ? {} : { visualIntent: input.visualIntent }),
+    ...(input.complexity === undefined ? {} : { complexity: input.complexity }),
   };
 }
 
@@ -185,7 +191,7 @@ export function createMcpServer(service: BridgeService): McpServer {
     "dsh_delegate",
     {
       description:
-        "Create a root session on the configured official DSH Web Host and queue the initial prompt. Before calling, put a compact handoff in prompt from known progress plus read-only Git/workspace evidence; identify focus paths and tell DSH to read those focus paths first instead of scanning the whole repository unless blocked. An explicit user choice of modelProfile or reasoningEffort always takes precedence. Otherwise the caller may choose pro for complex work and a modlens profile for visual work whose local image paths are included in the prompt; omit routing fields to inherit DSH's configured model. Explicit selection uses session.selectModel, which also persists the selection as the DSH default for later sessions. Detached by default. workspaceMode is only a bridge-local cooperative claim and does not select or verify the DSH sandbox.",
+        "Create a root session on the configured official DSH Web Host and queue the initial prompt. Before calling, put a compact handoff in prompt from known progress plus read-only Git/workspace evidence; identify focus paths and tell DSH to read those focus paths first instead of scanning the whole repository unless blocked. An explicit user choice of modelProfile or reasoningEffort always takes precedence. Otherwise the caller may choose pro for complex non-visual work; visual work must declare visualIntent=required with complexity instead of choosing a modlens profile directly; omit routing fields to inherit DSH's configured model. For visual work pass visualIntent=required with complexity: visual low selects the official native Flash Vision; visual high requires an explicit user choice between official-flash-vision and modlens-pro; modlens-flash is never a first visual choice under the declared visual policy. After the approved visual route exhausts bounded retries caused by timeout, unreachable Host, or HTTP 5xx, the bridge tries ModLens Flash exactly once and marks the result with visualRouting.fallback plus a short non-sensitive notice to show the user at task end. If visual policy fields are omitted, an explicitly supplied legacy modlens-flash route remains compatible. Explicit selection uses session.selectModel, which also persists the selection as the DSH default for later sessions. Detached by default. workspaceMode is only a bridge-local cooperative claim and does not select or verify the DSH sandbox.",
       inputSchema: z
         .object({
           prompt: z.string().min(1),
@@ -205,7 +211,19 @@ export function createMcpServer(service: BridgeService): McpServer {
             .enum(modelProfiles)
             .optional()
             .describe(
-              "Semantic route: flash/pro use deepseek-official; modlens-flash/modlens-pro use deepseek-modlens for visual work; inherit keeps the current route. Explicit user choice takes precedence over caller heuristics.",
+              "Semantic route: flash/pro use deepseek-official; official-flash-vision uses the official native Flash Vision; modlens-flash/modlens-pro use deepseek-modlens, where modlens-flash is never a first visual choice; inherit keeps the current route. Explicit user choice takes precedence over caller heuristics.",
+            ),
+          visualIntent: z
+            .enum(["none", "required"])
+            .optional()
+            .describe(
+              "Declare visual work explicitly. required applies the visual policy: low complexity selects the official native Flash Vision, high complexity requires an explicit user choice between official-flash-vision and modlens-pro. Omitted/none preserves the non-visual policy.",
+            ),
+          complexity: z
+            .enum(["low", "high"])
+            .optional()
+            .describe(
+              "Task complexity for policy defaulting when no explicit user modelProfile is given. Non-visual low selects official Flash and high selects official Pro; visual low selects official Flash Vision and visual high requires an explicit user choice.",
             ),
           reasoningEffort: z
             .string()
@@ -223,7 +241,7 @@ export function createMcpServer(service: BridgeService): McpServer {
         .strict(),
       annotations: writeOnce,
     },
-    async ({ prompt, cwd, agentPreset, title, waitSeconds, workspaceMode, modelProfile, reasoningEffort, selectionReason }) =>
+    async ({ prompt, cwd, agentPreset, title, waitSeconds, workspaceMode, modelProfile, reasoningEffort, selectionReason, visualIntent, complexity }) =>
       handled(() =>
         service.delegate({
           prompt,
@@ -235,6 +253,8 @@ export function createMcpServer(service: BridgeService): McpServer {
           ...(modelProfile === undefined ? {} : { modelProfile }),
           ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
           ...(selectionReason === undefined ? {} : { selectionReason }),
+          ...(visualIntent === undefined ? {} : { visualIntent }),
+          ...(complexity === undefined ? {} : { complexity }),
         }),
       ),
   );
@@ -252,6 +272,18 @@ export function createMcpServer(service: BridgeService): McpServer {
         .describe(
           "Optional semantic route selected and re-verified before this follow-up prompt; omit to inherit the session route. Explicit selection persists as the DSH default.",
         ),
+      visualIntent: z
+        .enum(["none", "required"])
+        .optional()
+        .describe(
+          "Declare visual work explicitly. required applies the visual policy: low complexity selects the official native Flash Vision, high complexity requires an explicit user choice between official-flash-vision and modlens-pro.",
+        ),
+      complexity: z
+        .enum(["low", "high"])
+        .optional()
+        .describe(
+          "Task complexity for policy defaulting when no explicit user modelProfile is given. Non-visual low/high select official Flash/Pro; visual low selects official Flash Vision and visual high requires an explicit user choice.",
+        ),
       reasoningEffort: z
         .string()
         .trim()
@@ -267,30 +299,30 @@ export function createMcpServer(service: BridgeService): McpServer {
     })
     .strict();
   const followupDescription =
-    "Continue the same known BridgeTask and root DSH session instead of creating another delegation for the same work. Never guess an old task id; start a fresh delegation when no matching task id is known. queue targets the next turn; steer targets the active turn's next step. Optional semantic model routing is catalog-validated and re-read before the prompt; selection failure sends no prompt, but an attempted session.selectModel may already have persisted as the DSH global default. Omit routing to inherit. The write is never automatically retried.";
+    "Continue the same known BridgeTask and root DSH session instead of creating another delegation for the same work. Never guess an old task id; start a fresh delegation when no matching task id is known. queue targets the next turn; steer targets the active turn's next step. Optional semantic model routing is catalog-validated and re-read before the prompt; selection failure sends no prompt, but an attempted session.selectModel may already have persisted as the DSH global default. Omit routing to inherit. Visual routing follows the same policy: visualIntent=required with complexity low selects the official native Flash Vision and complexity high requires an explicit user choice between official-flash-vision and modlens-pro. After timeout, unreachable Host, or HTTP 5xx failures exhaust the bounded retries on the approved visual route, the bridge tries ModLens Flash exactly once and marks the result with visualRouting.fallback plus a short non-sensitive notice for the user; when visual policy fields are omitted, an explicitly supplied legacy modlens-flash route remains compatible; the prompt write itself is never automatically retried.";
   server.registerTool(
     "dsh_followup",
     { description: followupDescription, inputSchema: followupSchema, annotations: writeOnce },
-    async ({ taskId, prompt, mode, sinceCursor, expectedRevision, modelProfile, reasoningEffort, selectionReason }) =>
+    async ({ taskId, prompt, mode, sinceCursor, expectedRevision, modelProfile, reasoningEffort, selectionReason, visualIntent, complexity }) =>
       handled(() =>
         service.continueTask(
           taskId,
           prompt,
           mode,
-          followupOptions({ sinceCursor, expectedRevision, modelProfile, reasoningEffort, selectionReason }),
+          followupOptions({ sinceCursor, expectedRevision, modelProfile, reasoningEffort, selectionReason, visualIntent, complexity }),
         ),
       ),
   );
   server.registerTool(
     "dsh_continue",
     { description: `Compatibility alias for dsh_followup. ${followupDescription}`, inputSchema: followupSchema, annotations: writeOnce },
-    async ({ taskId, prompt, mode, sinceCursor, expectedRevision, modelProfile, reasoningEffort, selectionReason }) =>
+    async ({ taskId, prompt, mode, sinceCursor, expectedRevision, modelProfile, reasoningEffort, selectionReason, visualIntent, complexity }) =>
       handled(() =>
         service.continueTask(
           taskId,
           prompt,
           mode,
-          followupOptions({ sinceCursor, expectedRevision, modelProfile, reasoningEffort, selectionReason }),
+          followupOptions({ sinceCursor, expectedRevision, modelProfile, reasoningEffort, selectionReason, visualIntent, complexity }),
         ),
       ),
   );

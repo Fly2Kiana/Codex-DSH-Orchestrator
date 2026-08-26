@@ -36,6 +36,8 @@ test("codex-dsh-orchestrator packages the approved global orchestration contract
     "modelProfile=\"pro\"",
     "modelProfile=\"modlens-flash\"",
     "modelProfile=\"modlens-pro\"",
+    "visualIntent=\"required\"",
+    "is never a first visual choice",
     "collapsed Code Mode",
     "top-level `run_code`",
     "tools.modlens_read_image",
@@ -71,6 +73,7 @@ test("codex-dsh-orchestrator packages the approved global orchestration contract
     "automatically read the Codex conversation",
     "automatically approve",
     "expiry of the known tool timeout as failure",
+    "when ordinary visual evidence is essential",
   ]) {
     assert.equal(skill.includes(forbidden), false, `orchestrator skill contains forbidden behavior: ${forbidden}`);
   }

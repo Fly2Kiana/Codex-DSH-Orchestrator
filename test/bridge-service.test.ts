@@ -11,9 +11,12 @@ import {
   FollowupPromptError,
   FollowupRoutingError,
   StaleViewError,
+  VisualRoutingError,
 } from "../src/bridge-service.js";
 import type { BridgeConfig } from "../src/config.js";
-import { DshRpcError } from "../src/dsh-client.js";
+import { DshRpcError, DshTransportError } from "../src/dsh-client.js";
+import type { DshSessionModels } from "../src/dsh-types.js";
+import { MAX_VISUAL_ROUTE_ATTEMPTS, ModelRoutingError } from "../src/model-routing.js";
 import { EventLedger } from "../src/event-ledger.js";
 import { DuplicateSessionMappingError, TaskStore } from "../src/task-store.js";
 import { WorkspaceClaimConflictError, WorkspaceClaimStore } from "../src/workspace-claim.js";
@@ -26,6 +29,42 @@ function config(homeDir: string): BridgeConfig {
     requestTimeoutMs: 1_000,
     allowRemoteHost: false,
   };
+}
+
+// Mirrors the live session catalog ids observed read-only on 2026-08-26.
+function visualCatalog(): DshSessionModels {
+  return {
+    current: { provider: "deepseek-official", model: "deepseek-v4-flash" },
+    routable: true,
+    groups: [
+      {
+        id: "deepseek-official",
+        name: "DeepSeek",
+        models: [
+          { id: "deepseek-v4-flash", name: "Flash" },
+          { id: "deepseek-v4-pro", name: "Pro" },
+          {
+            id: "deepseek-v4-flash-vision-exp",
+            name: "DeepSeek-V4-Flash-Vision-Exp",
+            reasoning: { efforts: [{ id: "high", name: "High" }], defaultEffort: "high" },
+          },
+        ],
+      },
+      {
+        id: "deepseek-modlens",
+        name: "DeepSeek (modlens vision)",
+        models: [
+          { id: "deepseek-v4-flash", name: "Flash (modlens vision)" },
+          { id: "deepseek-v4-pro", name: "Pro (modlens vision)" },
+        ],
+      },
+    ],
+    failures: [],
+  };
+}
+
+function unreachableFailure(): DshTransportError {
+  return new DshTransportError("failed to reach DSH Host at http://127.0.0.1:3080: fetch failed");
 }
 
 async function makeDirLink(target: string, linkPath: string): Promise<void> {
@@ -1466,6 +1505,704 @@ test("status and tail hydrate conversation content from live DSH history without
     const offlineTail = await service.tail(task.taskId, 0, 10, 10_000);
     assert.notEqual(offlineTail.contentUnavailable, false);
     assert.equal(offlineTail.events.some((event) => JSON.stringify(event.digest).includes("live final only")), false);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("delegate routes visual low complexity to the official native Flash Vision before prompting", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codex-dsh-service-"));
+  try {
+    const api = new FakeDshApi();
+    api.models = visualCatalog();
+    const tasks = new TaskStore(home);
+    const ledger = new EventLedger(home);
+    const service = new BridgeService(config(home), api, tasks, new FakeConnection(ledger), ledger);
+
+    const delegated = await service.delegate({
+      prompt: "Inspect the screenshot at the path included in the prompt",
+      cwd: home,
+      visualIntent: "required",
+      complexity: "low",
+      selectionReason: "Low-complexity visual inspection",
+    });
+
+    const select = api.calls.find((call) => call.method === "session.selectModel");
+    assert.deepEqual(select?.payload, {
+      sessionId: "root-session",
+      provider: "deepseek-official",
+      model: "deepseek-v4-flash-vision-exp",
+      reasoningEffort: "high",
+    });
+    const ordered = api.calls.map((call) => call.method);
+    const selectIndex = ordered.indexOf("session.selectModel");
+    const promptIndex = ordered.indexOf("session.prompt");
+    assert.equal(selectIndex !== -1 && promptIndex !== -1 && selectIndex < promptIndex, true);
+    assert.deepEqual(delegated.model, {
+      provider: "deepseek-official",
+      model: "deepseek-v4-flash-vision-exp",
+      reasoningEffort: "high",
+    });
+    assert.equal(delegated.modelRouting.profile, "official-flash-vision");
+    assert.equal(delegated.modelRouting.selected.provider, "deepseek-official");
+    assert.equal(delegated.modelRouting.selected.model, "deepseek-v4-flash-vision-exp");
+    assert.deepEqual(delegated.visualRouting, {
+      visualIntent: "required",
+      complexity: "low",
+      decision: "official-flash-vision",
+      fallback: null,
+    });
+    const status = await service.status(delegated.taskId);
+    assert.equal(status.visualFallback, null);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("delegate requires an explicit user choice for visual high before any Host interaction", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codex-dsh-service-"));
+  try {
+    const api = new FakeDshApi();
+    api.models = visualCatalog();
+    const tasks = new TaskStore(home);
+    const ledger = new EventLedger(home);
+    const service = new BridgeService(config(home), api, tasks, new FakeConnection(ledger), ledger);
+
+    await assert.rejects(
+      () => service.delegate({ prompt: "complex visual work", cwd: home, visualIntent: "required", complexity: "high" }),
+      (error: unknown) =>
+        error instanceof VisualRoutingError &&
+        error.code === "user_choice_required" &&
+        Array.isArray(error.details.choices) &&
+        (error.details.choices as string[]).includes("official-flash-vision") &&
+        (error.details.choices as string[]).includes("modlens-pro"),
+    );
+    assert.equal(api.calls.length, 0);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("delegate accepts each explicit user choice for visual high complexity", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codex-dsh-service-"));
+  try {
+    for (const profile of ["official-flash-vision", "modlens-pro"] as const) {
+      const api = new FakeDshApi();
+      api.nextSessionId = `choice-session-${profile}`;
+      api.models = visualCatalog();
+      const tasks = new TaskStore(home);
+      const ledger = new EventLedger(home);
+      const service = new BridgeService(config(home), api, tasks, new FakeConnection(ledger), ledger);
+      const delegatedCwd = await mkdtemp(join(home, "choice-cwd-"));
+
+      const delegated = await service.delegate({
+        prompt: "complex visual work with an explicit user choice",
+        cwd: delegatedCwd,
+        visualIntent: "required",
+        complexity: "high",
+        modelProfile: profile,
+      });
+      assert.equal(delegated.modelRouting.profile, profile);
+      assert.equal(delegated.modelRouting.mode, "selected");
+      assert.equal(delegated.model.provider, profile === "official-flash-vision" ? "deepseek-official" : "deepseek-modlens");
+      assert.equal(delegated.model.model, profile === "official-flash-vision" ? "deepseek-v4-flash-vision-exp" : "deepseek-v4-pro");
+      assert.equal(delegated.visualRouting?.decision, profile);
+      assert.equal(delegated.visualRouting?.fallback, null);
+    }
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("delegate rejects modlens-flash first choice and complexity-less visual intent before any Host interaction", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codex-dsh-service-"));
+  try {
+    const api = new FakeDshApi();
+    api.models = visualCatalog();
+    const tasks = new TaskStore(home);
+    const ledger = new EventLedger(home);
+    const service = new BridgeService(config(home), api, tasks, new FakeConnection(ledger), ledger);
+
+    await assert.rejects(
+      () =>
+        service.delegate({
+          prompt: "visual work",
+          cwd: home,
+          visualIntent: "required",
+          complexity: "low",
+          modelProfile: "modlens-flash",
+        }),
+      (error: unknown) => error instanceof VisualRoutingError && error.code === "visual_fallback_only",
+    );
+    assert.equal(api.calls.length, 0);
+
+    await assert.rejects(
+      () => service.delegate({ prompt: "visual work", cwd: home, visualIntent: "required" }),
+      (error: unknown) => error instanceof VisualRoutingError && error.code === "visual_complexity_required",
+    );
+    assert.equal(api.calls.length, 0);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("delegate applies the non-visual complexity policy while an explicit profile still wins", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codex-dsh-service-"));
+  try {
+    const api = new FakeDshApi();
+    api.models = visualCatalog();
+    const tasks = new TaskStore(home);
+    const ledger = new EventLedger(home);
+    const service = new BridgeService(config(home), api, tasks, new FakeConnection(ledger), ledger);
+
+    api.nextSessionId = "low-session";
+    const lowCwd = await mkdtemp(join(home, "low-cwd-"));
+    const low = await service.delegate({ prompt: "routine work", cwd: lowCwd, complexity: "low" });
+    assert.equal(low.modelRouting.profile, "flash");
+    assert.equal(low.model.provider, "deepseek-official");
+    assert.equal(low.model.model, "deepseek-v4-flash");
+    assert.equal(low.visualRouting, undefined);
+
+    api.nextSessionId = "high-session";
+    const highCwd = await mkdtemp(join(home, "high-cwd-"));
+    const high = await service.delegate({ prompt: "complex work", cwd: highCwd, complexity: "high" });
+    assert.equal(high.modelRouting.profile, "pro");
+    assert.equal(high.model.model, "deepseek-v4-pro");
+
+    api.nextSessionId = "explicit-session";
+    const explicitCwd = await mkdtemp(join(home, "explicit-cwd-"));
+    const explicit = await service.delegate({
+      prompt: "complex work with an explicit user route",
+      cwd: explicitCwd,
+      complexity: "low",
+      modelProfile: "pro",
+    });
+    assert.equal(explicit.modelRouting.profile, "pro");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("delegate retries the approved visual route a bounded number of times and falls back to ModLens Flash exactly once", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codex-dsh-service-"));
+  try {
+    const api = new FakeDshApi();
+    api.models = visualCatalog();
+    const selectModel = api.sessionSelectModel.bind(api);
+    api.sessionSelectModel = async (payload) => {
+      if (payload.provider === "deepseek-official") {
+        api.calls.push({ method: "session.selectModel", payload });
+        throw unreachableFailure();
+      }
+      return selectModel(payload);
+    };
+    const tasks = new TaskStore(home);
+    const ledger = new EventLedger(home);
+    const service = new BridgeService(config(home), api, tasks, new FakeConnection(ledger), ledger);
+
+    const delegated = await service.delegate({
+      prompt: "visual work",
+      cwd: home,
+      visualIntent: "required",
+      complexity: "low",
+    });
+
+    const selects = api.calls.filter((call) => call.method === "session.selectModel");
+    assert.equal(
+      selects.filter((call) => (call.payload as { provider: string }).provider === "deepseek-official").length,
+      MAX_VISUAL_ROUTE_ATTEMPTS,
+    );
+    assert.deepEqual(
+      selects.filter((call) => (call.payload as { provider: string }).provider === "deepseek-modlens").map((call) => call.payload),
+      [{ sessionId: "root-session", provider: "deepseek-modlens", model: "deepseek-v4-flash" }],
+    );
+    assert.equal(api.calls.filter((call) => call.method === "session.prompt").length, 1);
+    assert.equal(delegated.modelRouting.profile, "modlens-flash");
+    assert.deepEqual(delegated.model, { provider: "deepseek-modlens", model: "deepseek-v4-flash" });
+    assert.equal(delegated.visualRouting?.decision, "official-flash-vision");
+    assert.deepEqual(delegated.visualRouting?.fallback, {
+      used: true,
+      profile: "modlens-flash",
+      approvedRoute: "official-flash-vision",
+      approvedRouteAttempts: MAX_VISUAL_ROUTE_ATTEMPTS,
+      lastFailureClass: "unreachable",
+      notice:
+        "Fallback used: the approved visual route stayed unavailable after bounded retries (timeout, unreachable Host, or HTTP 5xx force-majeure failures only), so this visual task ran on ModLens Flash (deepseek-modlens/deepseek-v4-flash).",
+    });
+
+    const status = await service.status(delegated.taskId);
+    assert.deepEqual(status.visualFallback, {
+      profile: "modlens-flash",
+      approvedRoute: "official-flash-vision",
+      approvedRouteAttempts: MAX_VISUAL_ROUTE_ATTEMPTS,
+      lastFailureClass: "unreachable",
+      notice:
+        "Fallback used: the approved visual route stayed unavailable after bounded retries (timeout, unreachable Host, or HTTP 5xx force-majeure failures only), so this visual task ran on ModLens Flash (deepseek-modlens/deepseek-v4-flash).",
+    });
+    const ledgerRaw = await readFile(join(home, "ledgers", delegated.taskId, "events.jsonl"), "utf8");
+    assert.equal(ledgerRaw.includes("bridge/visual-fallback"), true);
+    assert.equal(ledgerRaw.includes("visual work"), false);
+    assert.equal(ledgerRaw.includes("http://"), false);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("status recovers the persisted visual fallback marker after a bridge rebuild", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codex-dsh-service-"));
+  try {
+    const api = new FakeDshApi();
+    api.models = visualCatalog();
+    const selectModel = api.sessionSelectModel.bind(api);
+    api.sessionSelectModel = async (payload) => {
+      if (payload.provider === "deepseek-official") {
+        api.calls.push({ method: "session.selectModel", payload });
+        throw unreachableFailure();
+      }
+      return selectModel(payload);
+    };
+    const tasks = new TaskStore(home);
+    const ledger = new EventLedger(home);
+    const service = new BridgeService(config(home), api, tasks, new FakeConnection(ledger), ledger);
+    const delegated = await service.delegate({ prompt: "visual work", cwd: home, visualIntent: "required", complexity: "low" });
+    assert.equal(delegated.visualRouting?.fallback?.used, true);
+
+    const rebuiltLedger = new EventLedger(home);
+    const rebuilt = new BridgeService(
+      config(home),
+      new FakeDshApi(),
+      new TaskStore(home),
+      new FakeConnection(rebuiltLedger),
+      rebuiltLedger,
+    );
+    const rebuiltStatus = await rebuilt.status(delegated.taskId);
+    assert.deepEqual(rebuiltStatus.visualFallback, {
+      profile: "modlens-flash",
+      approvedRoute: "official-flash-vision",
+      approvedRouteAttempts: MAX_VISUAL_ROUTE_ATTEMPTS,
+      lastFailureClass: "unreachable",
+      notice:
+        "Fallback used: the approved visual route stayed unavailable after bounded retries (timeout, unreachable Host, or HTTP 5xx force-majeure failures only), so this visual task ran on ModLens Flash (deepseek-modlens/deepseek-v4-flash).",
+    });
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("delegate does not persist a visual fallback marker when the initial prompt fails", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codex-dsh-service-"));
+  try {
+    const api = new FakeDshApi();
+    api.models = visualCatalog();
+    const selectModel = api.sessionSelectModel.bind(api);
+    api.sessionSelectModel = async (payload) => {
+      if (payload.provider === "deepseek-official") {
+        api.calls.push({ method: "session.selectModel", payload });
+        throw unreachableFailure();
+      }
+      return selectModel(payload);
+    };
+    api.sessionPrompt = async (payload) => {
+      api.calls.push({ method: "session.prompt", payload });
+      throw new Error("prompt rejected");
+    };
+    const tasks = new TaskStore(home);
+    const ledger = new EventLedger(home);
+    const service = new BridgeService(config(home), api, tasks, new FakeConnection(ledger), ledger);
+
+    await assert.rejects(
+      () => service.delegate({ prompt: "visual work", cwd: home, visualIntent: "required", complexity: "low" }),
+      (error: unknown) => error instanceof DelegationSetupError && error.stage === "prompt",
+    );
+    const mappedTasks = await tasks.list();
+    assert.equal(mappedTasks.length, 1);
+    const status = await service.status(mappedTasks[0]!.taskId);
+    assert.equal(status.visualFallback, null);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("followup does not persist a visual fallback marker when the prompt fails", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codex-dsh-service-"));
+  try {
+    const api = new FakeDshApi();
+    api.models = visualCatalog();
+    const selectModel = api.sessionSelectModel.bind(api);
+    api.sessionSelectModel = async (payload) => {
+      if (payload.provider === "deepseek-official") {
+        api.calls.push({ method: "session.selectModel", payload });
+        throw unreachableFailure();
+      }
+      return selectModel(payload);
+    };
+    api.sessionPrompt = async (payload) => {
+      api.calls.push({ method: "session.prompt", payload });
+      throw new Error("prompt rejected");
+    };
+    const tasks = new TaskStore(home);
+    const task = await tasks.create("root-session");
+    await new WorkspaceClaimStore(home).acquire({
+      canonicalCwd: home,
+      taskId: task.taskId,
+      sessionId: task.sessionId,
+      mode: "exclusive-write",
+    });
+    const ledger = new EventLedger(home);
+    const connection = new FakeConnection(ledger);
+    connection.lineage = [
+      { sessionId: "root-session", found: true, origin: "root", running: false, blank: false, historyCapability: "session.history" },
+    ];
+    const service = new BridgeService(config(home), api, tasks, connection, ledger);
+
+    await assert.rejects(
+      () => service.continueTask(task.taskId, "visual follow-up", "queue", { visualIntent: "required", complexity: "low" }),
+      (error: unknown) => error instanceof FollowupPromptError,
+    );
+    const status = await service.status(task.taskId);
+    assert.equal(status.visualFallback, null);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("delegate preserves the legacy explicit modlens-flash route when visual fields are omitted", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codex-dsh-service-"));
+  try {
+    const api = new FakeDshApi();
+    api.models = visualCatalog();
+    const tasks = new TaskStore(home);
+    const ledger = new EventLedger(home);
+    const service = new BridgeService(config(home), api, tasks, new FakeConnection(ledger), ledger);
+
+    const delegated = await service.delegate({ prompt: "legacy visual request", cwd: home, modelProfile: "modlens-flash" });
+    assert.equal(delegated.modelRouting.profile, "modlens-flash");
+    assert.deepEqual(delegated.model, { provider: "deepseek-modlens", model: "deepseek-v4-flash" });
+    assert.equal(delegated.visualRouting, undefined);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("delegate stops retrying within the bound and never falls back when the approved route recovers", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codex-dsh-service-"));
+  try {
+    const api = new FakeDshApi();
+    api.models = visualCatalog();
+    const selectModel = api.sessionSelectModel.bind(api);
+    let approvedAttempts = 0;
+    api.sessionSelectModel = async (payload) => {
+      if (payload.provider === "deepseek-official") {
+        approvedAttempts += 1;
+        if (approvedAttempts < MAX_VISUAL_ROUTE_ATTEMPTS) {
+          api.calls.push({ method: "session.selectModel", payload });
+          throw unreachableFailure();
+        }
+      }
+      return selectModel(payload);
+    };
+    const tasks = new TaskStore(home);
+    const ledger = new EventLedger(home);
+    const service = new BridgeService(config(home), api, tasks, new FakeConnection(ledger), ledger);
+
+    const delegated = await service.delegate({
+      prompt: "visual work",
+      cwd: home,
+      visualIntent: "required",
+      complexity: "low",
+    });
+
+    assert.equal(approvedAttempts, MAX_VISUAL_ROUTE_ATTEMPTS);
+    assert.equal(delegated.modelRouting.profile, "official-flash-vision");
+    assert.equal(delegated.visualRouting?.fallback, null);
+    assert.equal(
+      api.calls.filter(
+        (call) => call.method === "session.selectModel" && (call.payload as { provider: string }).provider === "deepseek-modlens",
+      ).length,
+      0,
+    );
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("delegate fails closed with a single fallback attempt when the fallback route also stays unreachable", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codex-dsh-service-"));
+  try {
+    const api = new FakeDshApi();
+    api.models = visualCatalog();
+    api.sessionSelectModel = async (payload) => {
+      api.calls.push({ method: "session.selectModel", payload });
+      throw unreachableFailure();
+    };
+    const tasks = new TaskStore(home);
+    const ledger = new EventLedger(home);
+    const service = new BridgeService(config(home), api, tasks, new FakeConnection(ledger), ledger);
+
+    await assert.rejects(
+      () => service.delegate({ prompt: "visual work", cwd: home, visualIntent: "required", complexity: "low" }),
+      (error: unknown) =>
+        error instanceof DelegationSetupError && error.stage === "model-selection" && error.failureClass === "unreachable",
+    );
+    const selects = api.calls.filter((call) => call.method === "session.selectModel");
+    assert.equal(
+      selects.filter((call) => (call.payload as { provider: string }).provider === "deepseek-official").length,
+      MAX_VISUAL_ROUTE_ATTEMPTS,
+    );
+    assert.equal(
+      selects.filter((call) => (call.payload as { provider: string }).provider === "deepseek-modlens").length,
+      1,
+    );
+    assert.equal(api.calls.some((call) => call.method === "session.prompt"), false);
+    const mappedTasks = await tasks.list();
+    assert.equal(mappedTasks.length, 1);
+    const status = await service.status(mappedTasks[0]!.taskId);
+    assert.equal(status.visualFallback, null);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("delegate reports the fallback's own failure class when the single fallback attempt fails", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codex-dsh-service-"));
+  try {
+    const fallbackFailures: Array<{ label: string; error: unknown; expectedClass: string }> = [
+      {
+        label: "fallback invalid input",
+        error: new DshTransportError("DSH transport failure for session.selectModel: HTTP 400"),
+        expectedClass: "invalid_input",
+      },
+      {
+        label: "fallback policy denial",
+        error: new DshRpcError("credential-invalid", "bad key", {}),
+        expectedClass: "policy_denied",
+      },
+      {
+        label: "fallback still unreachable",
+        error: new DshTransportError("DSH transport failure for session.selectModel: HTTP 503"),
+        expectedClass: "unreachable",
+      },
+    ];
+    for (const [index, { label, error, expectedClass }] of fallbackFailures.entries()) {
+      const api = new FakeDshApi();
+      api.nextSessionId = `fallback-fail-session-${index}`;
+      api.models = visualCatalog();
+      api.sessionSelectModel = async (payload) => {
+        if (payload.provider === "deepseek-official") {
+          api.calls.push({ method: "session.selectModel", payload });
+          throw unreachableFailure();
+        }
+        api.calls.push({ method: "session.selectModel", payload });
+        throw error;
+      };
+      const tasks = new TaskStore(home);
+      const ledger = new EventLedger(home);
+      const service = new BridgeService(config(home), api, tasks, new FakeConnection(ledger), ledger);
+      const delegatedCwd = await mkdtemp(join(home, "fallback-fail-cwd-"));
+
+      await assert.rejects(
+        () => service.delegate({ prompt: "visual work", cwd: delegatedCwd, visualIntent: "required", complexity: "low" }),
+        (caught: unknown) =>
+          caught instanceof DelegationSetupError && caught.stage === "model-selection" && caught.failureClass === expectedClass,
+        label,
+      );
+      const selects = api.calls.filter((call) => call.method === "session.selectModel");
+      assert.equal(
+        selects.filter((call) => (call.payload as { provider: string }).provider === "deepseek-official").length,
+        MAX_VISUAL_ROUTE_ATTEMPTS,
+        label,
+      );
+      assert.equal(
+        selects.filter((call) => (call.payload as { provider: string }).provider === "deepseek-modlens").length,
+        1,
+        label,
+      );
+      assert.equal(api.calls.some((call) => call.method === "session.prompt"), false, label);
+    }
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("delegate never retries or falls back for non-force-majeure route failures", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codex-dsh-service-"));
+  try {
+    const nonTriggering: Array<{ label: string; error: unknown }> = [
+      { label: "user cancellation", error: Object.assign(new Error("aborted"), { name: "AbortError" }) },
+      { label: "permission refusal", error: new DshRpcError("permission-denied", "not allowed", {}) },
+      { label: "configuration error", error: Object.assign(new Error("bad config"), { name: "ConfigError" }) },
+      { label: "unknown failure", error: new Error("response lost") },
+      {
+        label: "HTTP 400 invalid request",
+        error: new DshTransportError("DSH transport failure for session.selectModel: HTTP 400"),
+      },
+      {
+        label: "HTTP 404 missing model",
+        error: new DshTransportError("DSH transport failure for session.selectModel: HTTP 404"),
+      },
+      {
+        label: "HTTP 422 invalid payload",
+        error: new DshTransportError("DSH transport failure for session.selectModel: HTTP 422"),
+      },
+      {
+        label: "non-JSON protocol response",
+        error: new DshTransportError("DSH returned non-JSON data for session.selectModel"),
+      },
+    ];
+    for (const [index, { label, error }] of nonTriggering.entries()) {
+      const api = new FakeDshApi();
+      api.nextSessionId = `nontrigger-session-${index}`;
+      api.models = visualCatalog();
+      api.sessionSelectModel = async (payload) => {
+        api.calls.push({ method: "session.selectModel", payload });
+        throw error;
+      };
+      const tasks = new TaskStore(home);
+      const ledger = new EventLedger(home);
+      const service = new BridgeService(config(home), api, tasks, new FakeConnection(ledger), ledger);
+      const delegatedCwd = await mkdtemp(join(home, "nontrigger-cwd-"));
+
+      await assert.rejects(
+        () => service.delegate({ prompt: "visual work", cwd: delegatedCwd, visualIntent: "required", complexity: "low" }),
+        (caught: unknown) => caught instanceof DelegationSetupError && caught.stage === "model-selection",
+        label,
+      );
+      assert.equal(api.calls.filter((call) => call.method === "session.selectModel").length, 1, label);
+      assert.equal(
+        api.calls.filter(
+          (call) => call.method === "session.selectModel" && (call.payload as { provider: string }).provider === "deepseek-modlens",
+        ).length,
+        0,
+        label,
+      );
+      assert.equal(api.calls.some((call) => call.method === "session.prompt"), false, label);
+    }
+
+    const missingModelApi = new FakeDshApi();
+    const modelsWithoutVision = visualCatalog();
+    modelsWithoutVision.groups = modelsWithoutVision.groups.map((group) =>
+      group.id === "deepseek-official"
+        ? { ...group, models: group.models.filter((model) => model.id !== "deepseek-v4-flash-vision-exp") }
+        : group,
+    );
+    missingModelApi.nextSessionId = "missing-model-session";
+    missingModelApi.models = modelsWithoutVision;
+    const missingTasks = new TaskStore(home);
+    const missingLedger = new EventLedger(home);
+    const missingService = new BridgeService(config(home), missingModelApi, missingTasks, new FakeConnection(missingLedger), missingLedger);
+    const missingCwd = await mkdtemp(join(home, "missing-cwd-"));
+    await assert.rejects(
+      () => missingService.delegate({ prompt: "visual work", cwd: missingCwd, visualIntent: "required", complexity: "low" }),
+      (caught: unknown) => caught instanceof DelegationSetupError && caught.stage === "model-selection",
+    );
+    assert.equal(missingModelApi.calls.filter((call) => call.method === "session.selectModel").length, 0);
+    assert.equal(missingModelApi.calls.filter((call) => call.method === "session.models").length, 1);
+    assert.equal(missingModelApi.calls.some((call) => call.method === "session.prompt"), false);
+
+    const badEffortApi = new FakeDshApi();
+    badEffortApi.nextSessionId = "bad-effort-session";
+    badEffortApi.models = visualCatalog();
+    const badEffortTasks = new TaskStore(home);
+    const badEffortLedger = new EventLedger(home);
+    const badEffortService = new BridgeService(config(home), badEffortApi, badEffortTasks, new FakeConnection(badEffortLedger), badEffortLedger);
+    const badEffortCwd = await mkdtemp(join(home, "badeffort-cwd-"));
+    await assert.rejects(
+      () =>
+        badEffortService.delegate({
+          prompt: "visual work",
+          cwd: badEffortCwd,
+          visualIntent: "required",
+          complexity: "low",
+          reasoningEffort: "ultra",
+        }),
+      (caught: unknown) => caught instanceof DelegationSetupError && caught.stage === "model-selection",
+    );
+    assert.equal(badEffortApi.calls.filter((call) => call.method === "session.selectModel").length, 0);
+    assert.equal(badEffortApi.calls.some((call) => call.method === "session.prompt"), false);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("followup requires an explicit user choice for visual high before any Host interaction", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codex-dsh-service-"));
+  try {
+    const api = new FakeDshApi();
+    api.models = visualCatalog();
+    const tasks = new TaskStore(home);
+    const task = await tasks.create("root-session");
+    await new WorkspaceClaimStore(home).acquire({
+      canonicalCwd: home,
+      taskId: task.taskId,
+      sessionId: task.sessionId,
+      mode: "exclusive-write",
+    });
+    const ledger = new EventLedger(home);
+    const connection = new FakeConnection(ledger);
+    connection.lineage = [
+      { sessionId: "root-session", found: true, origin: "root", running: false, blank: false, historyCapability: "session.history" },
+    ];
+    const service = new BridgeService(config(home), api, tasks, connection, ledger);
+
+    await assert.rejects(
+      () =>
+        service.continueTask(task.taskId, "complex visual work", "queue", {
+          visualIntent: "required",
+          complexity: "high",
+        }),
+      (error: unknown) => error instanceof VisualRoutingError && error.code === "user_choice_required",
+    );
+    assert.equal(api.calls.length, 0);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("followup falls back to ModLens Flash once after the approved visual route stays unreachable", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codex-dsh-service-"));
+  try {
+    const api = new FakeDshApi();
+    api.models = visualCatalog();
+    const selectModel = api.sessionSelectModel.bind(api);
+    api.sessionSelectModel = async (payload) => {
+      if (payload.provider === "deepseek-official") {
+        api.calls.push({ method: "session.selectModel", payload });
+        throw unreachableFailure();
+      }
+      return selectModel(payload);
+    };
+    const tasks = new TaskStore(home);
+    const task = await tasks.create("root-session");
+    await new WorkspaceClaimStore(home).acquire({
+      canonicalCwd: home,
+      taskId: task.taskId,
+      sessionId: task.sessionId,
+      mode: "exclusive-write",
+    });
+    const ledger = new EventLedger(home);
+    const connection = new FakeConnection(ledger);
+    connection.lineage = [
+      { sessionId: "root-session", found: true, origin: "root", running: false, blank: false, historyCapability: "session.history" },
+    ];
+    const service = new BridgeService(config(home), api, tasks, connection, ledger);
+
+    const result = await service.continueTask(task.taskId, "visual follow-up", "queue", {
+      visualIntent: "required",
+      complexity: "low",
+    });
+
+    assert.equal(result.modelRouting.profile, "modlens-flash");
+    assert.deepEqual(result.model, { provider: "deepseek-modlens", model: "deepseek-v4-flash" });
+    assert.equal(result.visualRouting?.fallback?.used, true);
+    assert.equal(result.visualRouting?.fallback?.approvedRoute, "official-flash-vision");
+    assert.match(result.visualRouting?.fallback?.notice ?? "", /ModLens Flash/);
+    assert.equal(
+      api.calls.filter(
+        (call) => call.method === "session.selectModel" && (call.payload as { provider: string }).provider === "deepseek-modlens",
+      ).length,
+      1,
+    );
+    assert.equal(api.calls.filter((call) => call.method === "session.prompt").length, 1);
   } finally {
     await rm(home, { recursive: true, force: true });
   }

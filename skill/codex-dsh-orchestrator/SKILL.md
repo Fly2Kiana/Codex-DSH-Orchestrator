@@ -45,8 +45,7 @@ The user's explicit route choice always wins.
 
 - Use `modelProfile="flash"` for routine search, implementation, refactoring, test writing, and lint/type/test repair.
 - Use `modelProfile="pro"` for architecture analysis, difficult multi-step debugging, high-risk changes, or work requiring substantially deeper reasoning.
-- Use `modelProfile="modlens-flash"` when ordinary visual evidence is essential to the task.
-- Use `modelProfile="modlens-pro"` only for complex visual reasoning that justifies the higher-cost route.
+- For visual work, do not pick a ModLens profile directly: declare `visualIntent="required"` with `complexity="low"|"high"` and follow "Declare visual work explicitly" below. `modelProfile="modlens-pro"` is only an explicit user choice for high-complexity visual work, and `modelProfile="modlens-flash"` is never a first choice — it is only the automatic terminal fallback described below.
 - Omit routing or use `inherit` when the current DSH route is suitable or changing the global default is unacceptable.
 
 When choosing a non-inherit profile autonomously, include a concise `selectionReason`. Pass `reasoningEffort` when the user explicitly requests it; otherwise prefer the selected model's advertised default. Never invent an effort value: the live DSH catalog must advertise it.
@@ -57,7 +56,19 @@ Explicit model selection calls `session.selectModel`, which on the currently sup
 
 Normally omit `agentPreset` and retain the installation-time default. Do not change DSH profiles, authentication, permissions, or plugin configuration as part of orchestration.
 
+## Declare visual work explicitly
+
+For visual work, declare the policy through `visualIntent` and `complexity` instead of choosing a ModLens profile directly. A declared policy is deterministic and catalog-validated. When both visual policy fields are omitted, the bridge preserves explicit legacy `modelProfile` compatibility, including an explicitly supplied `modlens-flash`; that compatibility route is not the default visual policy.
+
+- `visualIntent="required"` with `complexity="low"` routes to the official native Flash Vision (`deepseek-official/deepseek-v4-flash-vision-exp`); no user choice is needed for the low-complexity default.
+- `visualIntent="required"` with `complexity="high"` requires an explicit user choice between `modelProfile="official-flash-vision"` and `modelProfile="modlens-pro"`. The bridge fails closed with `user_choice_required` before any session, selection, or prompt; ask the user, then retry with the chosen profile. Do not add or assume a persistent default.
+- `modelProfile="modlens-flash"` is never a first visual choice under the declared visual policy. It is the automatic terminal fallback: after the approved visual route exhausts its bounded retries with explicitly classified force-majeure failures only (timeout, unreachable Host, or HTTP 5xx), the bridge tries ModLens Flash exactly once. User cancellation, invalid input, missing models, permission or credential refusals, and configuration errors never trigger the fallback. An explicitly supplied legacy `modelProfile="modlens-flash"` remains accepted only when the visual policy fields are omitted.
+- When a delegate or followup result reports `visualRouting.fallback.used=true`, briefly tell the user at task end, using the short non-sensitive `notice` from the result. Never hide a failed fallback: if the fallback also fails, report the failure and stop.
+- Non-visual work keeps the existing policy: with a declared `complexity` and no explicit profile, low selects official Flash and high selects official Pro. An explicit user `modelProfile` always wins and remains catalog-validated, subject to policy safety.
+
 ## Handle visual work through DSH Code Mode
+
+The ModLens block and transport rules below apply only when the active visual route is a ModLens model — an explicit user choice of `modelProfile="modlens-pro"` for high-complexity visual work, an explicitly supplied legacy ModLens profile when visual policy fields are omitted, or the automatic terminal fallback described above. When the route is the official native Flash Vision, the model reads images natively; follow the same supervision rules without forcing the ModLens block.
 
 On the locally verified DSH rc.6 collapsed Code Mode path, `run_code` is the direct model tool and registered tools such as `modlens_read_image` remain available inside the program through the injected `tools` SDK. A top-level `run_code` call is expected on that path and does not show that ModLens is missing or misrouted. If another Host exposes native tools differently, follow its verified live capability instead of imposing the rc.6 transport.
 

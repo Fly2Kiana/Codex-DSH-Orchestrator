@@ -491,3 +491,50 @@ test("EventLedger snapshot projections persist only structural fields", async ()
     await rm(home, { recursive: true, force: true });
   }
 });
+
+test("EventLedger persists and folds the visual fallback marker without sensitive content", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codex-dsh-ledger-visual-fallback-"));
+  try {
+    const ledger = new EventLedger(home);
+    await ledger.append(taskId, {
+      sourceSessionId: "root",
+      origin: "root",
+      type: "bridge/visual-fallback",
+      raw: {
+        profile: "modlens-flash",
+        approvedRoute: "official-flash-vision",
+        approvedRouteAttempts: 3,
+        lastFailureClass: "unreachable",
+        notice: "Fallback used: short non-sensitive notice",
+        prompt: "SECRET prompt text must never persist",
+        imagePath: "/tmp/secret-image.png",
+        errorBody: "SECRET underlying error body",
+      },
+    });
+
+    const snapshot = await ledger.snapshot(taskId);
+    assert.deepEqual(snapshot.visualFallback, {
+      profile: "modlens-flash",
+      approvedRoute: "official-flash-vision",
+      approvedRouteAttempts: 3,
+      lastFailureClass: "unreachable",
+      notice: "Fallback used: short non-sensitive notice",
+    });
+    const rawText = await readFile(snapshot.logPath, "utf8");
+    assert.equal(rawText.includes("bridge/visual-fallback"), true);
+    assert.equal(rawText.includes("SECRET"), false);
+    assert.equal(rawText.includes("secret-image.png"), false);
+    assert.equal(rawText.includes("prompt"), false);
+
+    const rebuilt = await new EventLedger(home).snapshot(taskId);
+    assert.deepEqual(rebuilt.visualFallback, snapshot.visualFallback);
+
+    const tail = await ledger.tail(taskId, 0, 10, 10_000);
+    assert.equal(
+      tail.records.some((record) => record.type === "bridge/visual-fallback" && record.protected === true),
+      true,
+    );
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});

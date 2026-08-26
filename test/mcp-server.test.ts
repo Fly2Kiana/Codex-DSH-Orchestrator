@@ -395,3 +395,101 @@ test("MCP initialization instructions document the cross-task reuse decision sea
     /A new caller task without a known matching BridgeTask or an explicitly identified existing DSH session must start a fresh delegation/i,
   );
 });
+
+test("MCP delegate and followup expose the visual routing contract with a fail-closed user choice", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codex-dsh-mcp-visual-"));
+  const delegatedCwd = await mkdtemp(join(tmpdir(), "codex-dsh-mcp-visual-cwd-"));
+  const api = new FakeDshApi();
+  api.models = {
+    current: { provider: "deepseek-official", model: "deepseek-v4-flash" },
+    routable: true,
+    groups: [
+      {
+        id: "deepseek-official",
+        name: "DeepSeek",
+        models: [
+          { id: "deepseek-v4-flash", name: "Flash" },
+          {
+            id: "deepseek-v4-flash-vision-exp",
+            name: "DeepSeek-V4-Flash-Vision-Exp",
+            reasoning: { efforts: [{ id: "high", name: "High" }], defaultEffort: "high" },
+          },
+        ],
+      },
+      {
+        id: "deepseek-modlens",
+        name: "DeepSeek (modlens vision)",
+        models: [
+          { id: "deepseek-v4-flash", name: "Flash (modlens vision)" },
+          { id: "deepseek-v4-pro", name: "Pro (modlens vision)" },
+        ],
+      },
+    ],
+    failures: [],
+  };
+  const tasks = new TaskStore(home);
+  const ledger = new EventLedger(home);
+  const connection = new FakeConnection(ledger);
+  const config: BridgeConfig = {
+    hostUrl: "http://127.0.0.1:3080",
+    homeDir: home,
+    requestTimeoutMs: 1_000,
+    allowRemoteHost: false,
+  };
+  const service = new BridgeService(config, api, tasks, connection, ledger);
+  const server = createMcpServer(service);
+  const client = new Client({ name: "test-client", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const tools = await client.listTools();
+    const delegateTool = tools.tools.find((tool) => tool.name === "dsh_delegate");
+    assert.match(JSON.stringify(delegateTool?.inputSchema), /visualIntent/);
+    assert.match(JSON.stringify(delegateTool?.inputSchema), /complexity/);
+    assert.match(delegateTool?.description ?? "", /visual low selects the official native Flash Vision/i);
+    assert.match(delegateTool?.description ?? "", /modlens-flash is never a first visual choice/i);
+    assert.match(delegateTool?.description ?? "", /declare visualIntent=required/i);
+    assert.doesNotMatch(delegateTool?.description ?? "", /a modlens profile for visual work/i);
+    const followupTool = tools.tools.find((tool) => tool.name === "dsh_followup");
+    assert.match(JSON.stringify(followupTool?.inputSchema), /visualIntent/);
+    assert.match(JSON.stringify(followupTool?.inputSchema), /complexity/);
+    assert.match(followupTool?.description ?? "", /ModLens Flash exactly once/i);
+
+    const choiceRequired = await client.callTool({
+      name: "dsh_delegate",
+      arguments: { prompt: "complex visual work", cwd: delegatedCwd, visualIntent: "required", complexity: "high" },
+    });
+    assert.equal(choiceRequired.isError, true);
+    const choiceBody = parseToolText(choiceRequired);
+    assert.equal(choiceBody.code, "user_choice_required");
+    assert.deepEqual((choiceBody.details as { choices: string[] }).choices, ["official-flash-vision", "modlens-pro"]);
+    assert.equal(api.calls.length, 0);
+
+    const visualLow = await client.callTool({
+      name: "dsh_delegate",
+      arguments: { prompt: "visual low work", cwd: delegatedCwd, visualIntent: "required", complexity: "low" },
+    });
+    assert.equal(visualLow.isError, undefined);
+    const lowBody = parseToolText(visualLow);
+    assert.deepEqual(lowBody.visualRouting, {
+      visualIntent: "required",
+      complexity: "low",
+      decision: "official-flash-vision",
+      fallback: null,
+    });
+    const lowRouting = lowBody.modelRouting as { profile: string };
+    assert.equal(lowRouting.profile, "official-flash-vision");
+    const select = api.calls.find((call) => call.method === "session.selectModel");
+    assert.deepEqual(select?.payload, {
+      sessionId: "root-session",
+      provider: "deepseek-official",
+      model: "deepseek-v4-flash-vision-exp",
+      reasoningEffort: "high",
+    });
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(delegatedCwd, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true });
+  }
+});
