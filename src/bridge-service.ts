@@ -12,8 +12,27 @@ import type {
   TailDigestRecord,
 } from "./event-ledger.js";
 import { getDshUnaryMetadata } from "./dsh-types.js";
-import type { DshApi, DshHistoryEntry, DshQuestionAnswer, DshSessionSummary } from "./dsh-types.js";
-import { resolveModelSelection, verifyModelSelection, type ModelProfile } from "./model-routing.js";
+import type {
+  DshApi,
+  DshHistoryEntry,
+  DshModelSelection,
+  DshQuestionAnswer,
+  DshSessionModels,
+  DshSessionSummary,
+} from "./dsh-types.js";
+import {
+  classifyRouteFailure,
+  isForceMajeureFailure,
+  MAX_VISUAL_ROUTE_ATTEMPTS,
+  resolveModelSelection,
+  resolveRoutePolicy,
+  verifyModelSelection,
+  type Complexity,
+  type ModelProfile,
+  type RouteFailureClass,
+  type RoutePolicyDecision,
+  type VisualIntent,
+} from "./model-routing.js";
 import type { TaskRecord } from "./task-store.js";
 import { TaskStore } from "./task-store.js";
 import type { WorkspaceClaimMode } from "./workspace-claim.js";
@@ -29,6 +48,8 @@ export interface DelegateInput {
   modelProfile?: ModelProfile;
   reasoningEffort?: string;
   selectionReason?: string;
+  visualIntent?: VisualIntent;
+  complexity?: Complexity;
 }
 
 export interface FindSessionsInput {
@@ -59,6 +80,8 @@ export interface FollowupOptions extends WritePreconditions {
   modelProfile?: ModelProfile;
   reasoningEffort?: string;
   selectionReason?: string;
+  visualIntent?: VisualIntent;
+  complexity?: Complexity;
 }
 
 export type TaskAvailability = "connected" | "host_unreachable" | "session_not_found";
@@ -76,6 +99,7 @@ export class DelegationSetupError extends Error {
     readonly sessionId: string,
     readonly taskId?: string,
     options?: ErrorOptions,
+    readonly failureClass?: RouteFailureClass,
   ) {
     super(message, options);
     this.name = "DelegationSetupError";
@@ -156,10 +180,17 @@ export class FollowupRoutingError extends Error {
     profile: ModelProfile,
     modelSelectionMayHavePersisted: boolean,
     options?: ErrorOptions,
+    failureClass?: RouteFailureClass,
   ) {
     super(message, options);
     this.name = "FollowupRoutingError";
-    this.details = { taskId, rootSessionId, profile, modelSelectionMayHavePersisted };
+    this.details = {
+      taskId,
+      rootSessionId,
+      profile,
+      modelSelectionMayHavePersisted,
+      ...(failureClass === undefined ? {} : { failureClass }),
+    };
   }
 }
 
@@ -187,6 +218,51 @@ export class FollowupPromptError extends Error {
       selectedModel,
     };
   }
+}
+
+export class VisualRoutingError extends Error {
+  constructor(
+    readonly code: "user_choice_required" | "visual_fallback_only" | "visual_choice_unsupported" | "visual_complexity_required",
+    message: string,
+    readonly details: Record<string, unknown> = {},
+  ) {
+    super(message);
+    this.name = "VisualRoutingError";
+  }
+}
+
+/** Internal carrier for a failed visual route selection attempt. */
+export class VisualRouteFailedError extends Error {
+  constructor(
+    readonly lastFailureClass: RouteFailureClass,
+    readonly selectModelAttempted: boolean,
+    readonly fallbackAttempted: boolean,
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "VisualRouteFailedError";
+  }
+}
+
+export interface VisualFallbackResult {
+  used: true;
+  profile: "modlens-flash";
+  approvedRoute: ModelProfile;
+  approvedRouteAttempts: number;
+  lastFailureClass: RouteFailureClass;
+  notice: string;
+}
+
+export const VISUAL_FALLBACK_NOTICE =
+  "Fallback used: the approved visual route stayed unavailable after bounded retries (timeout, unreachable Host, or HTTP 5xx force-majeure failures only), so this visual task ran on ModLens Flash (deepseek-modlens/deepseek-v4-flash).";
+
+function applyRoutePolicy(decision: RoutePolicyDecision): ModelProfile {
+  if (decision.decision === "profile") return decision.profile;
+  if (decision.decision === "user_choice_required") {
+    throw new VisualRoutingError("user_choice_required", decision.message, { choices: decision.choices });
+  }
+  throw new VisualRoutingError(decision.code, decision.message);
 }
 
 const MAX_SESSION_TITLE_LENGTH = 256;
@@ -328,6 +404,7 @@ function statusShape(
         : ledger.finalMessagePointer === undefined
           ? "not_available"
           : "pointer_available",
+    visualFallback: ledger.visualFallback ?? null,
     contentUnavailable:
       availability === "connected" ? false : { reason: availability, conversationSource: "DSH session.history" },
     cursor: ledger.cursor,
@@ -355,6 +432,116 @@ export class BridgeService {
     private readonly ledger: EventLedger,
     private readonly claims: WorkspaceClaimStore = new WorkspaceClaimStore(config.homeDir),
   ) {}
+
+  /**
+   * Selects one visual route with bounded attempts, then falls back to ModLens
+   * Flash exactly once — only after every approved-route attempt failed with a
+   * classified external force-majeure failure (timeout/unreachable/HTTP 5xx). Any other
+   * failure class fails closed immediately with no fallback, and the fallback
+   * itself is attempted at most once and never disguised as success.
+   */
+  private async selectVisualRouteWithFallback(
+    sessionId: string,
+    approvedProfile: ModelProfile,
+    reasoningEffort: string | undefined,
+  ): Promise<{
+    profile: ModelProfile;
+    requested: DshModelSelection;
+    models: DshSessionModels;
+    fallback: VisualFallbackResult | undefined;
+  }> {
+    let lastFailureClass: RouteFailureClass = "unknown";
+    let selectModelAttempted = false;
+    const attemptRoute = async (profile: ModelProfile): Promise<{
+      profile: ModelProfile;
+      requested: DshModelSelection;
+      models: DshSessionModels;
+    }> => {
+      const models = await this.api.sessionModels(sessionId);
+      const requested = resolveModelSelection(models, profile, reasoningEffort);
+      selectModelAttempted = true;
+      await this.api.sessionSelectModel({
+        sessionId,
+        provider: requested.provider,
+        model: requested.model,
+        ...(requested.reasoningEffort === undefined ? {} : { reasoningEffort: requested.reasoningEffort }),
+      });
+      const refreshed = await this.api.sessionModels(sessionId);
+      verifyModelSelection(requested, refreshed);
+      return { profile, requested, models: refreshed };
+    };
+    for (let attempt = 0; attempt < MAX_VISUAL_ROUTE_ATTEMPTS; attempt += 1) {
+      try {
+        const selected = await attemptRoute(approvedProfile);
+        return { ...selected, fallback: undefined };
+      } catch (error) {
+        lastFailureClass = classifyRouteFailure(error);
+        if (!isForceMajeureFailure(error)) {
+          throw new VisualRouteFailedError(
+            lastFailureClass,
+            selectModelAttempted,
+            false,
+            `visual route ${approvedProfile} failed with a non-force-majeure failure (${lastFailureClass})`,
+            { cause: error },
+          );
+        }
+      }
+    }
+    try {
+      const fallbackSelection = await attemptRoute("modlens-flash");
+      return {
+        ...fallbackSelection,
+        fallback: {
+          used: true,
+          profile: "modlens-flash",
+          approvedRoute: approvedProfile,
+          approvedRouteAttempts: MAX_VISUAL_ROUTE_ATTEMPTS,
+          lastFailureClass,
+          notice: VISUAL_FALLBACK_NOTICE,
+        },
+      };
+    } catch (error) {
+      // Report the fallback's own classification, never the approved route's.
+      const fallbackClass = classifyRouteFailure(error);
+      throw new VisualRouteFailedError(
+        fallbackClass,
+        selectModelAttempted,
+        true,
+        `the single ModLens Flash fallback attempt for visual route ${approvedProfile} also failed (${fallbackClass})`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Persists only a minimal, non-sensitive coordination marker for a used
+   * ModLens Flash fallback (profile ids, attempt count, failure class, and a
+   * short notice). Prompt text, image paths, credentials, history, and error
+   * bodies are never part of the marker.
+   */
+  private async recordVisualFallback(
+    taskId: string,
+    sessionId: string,
+    fallback: VisualFallbackResult,
+  ): Promise<string | undefined> {
+    try {
+      await this.ledger.append(taskId, {
+        sourceSessionId: sessionId,
+        origin: "root",
+        type: "bridge/visual-fallback",
+        raw: {
+          profile: fallback.profile,
+          approvedRoute: fallback.approvedRoute,
+          approvedRouteAttempts: fallback.approvedRouteAttempts,
+          lastFailureClass: fallback.lastFailureClass,
+          notice: fallback.notice,
+        },
+      });
+      return undefined;
+    } catch (error) {
+      return `the visual fallback was used, but its coordination marker could not be recorded: ${String(error)}`;
+    }
+  }
 
   private async preflightWrite(taskId: string, preconditions: WritePreconditions = {}, requireWorkspaceClaim = false) {
     const task = await this.tasks.get(taskId);
@@ -767,7 +954,21 @@ export class BridgeService {
     if (!cwdStat.isDirectory()) throw new Error(`cwd is not a directory: ${cwd}`);
     const waitSeconds = input.waitSeconds ?? 0;
     this.validateWaitSeconds(waitSeconds);
-    const modelProfile = input.modelProfile ?? "inherit";
+    const policyDecision = resolveRoutePolicy({
+      ...(input.visualIntent === undefined ? {} : { visualIntent: input.visualIntent }),
+      ...(input.complexity === undefined ? {} : { complexity: input.complexity }),
+      ...(input.modelProfile === undefined ? {} : { modelProfile: input.modelProfile }),
+    });
+    const modelProfile = applyRoutePolicy(policyDecision);
+    // For visual-required requests the resolver guarantees complexity is set.
+    const visualRouting =
+      input.visualIntent === "required"
+        ? {
+            visualIntent: "required" as const,
+            complexity: input.complexity as Complexity,
+            decision: modelProfile,
+          }
+        : undefined;
     const reasoningEffort = input.reasoningEffort?.trim();
     if (input.reasoningEffort !== undefined && reasoningEffort === "") {
       throw new Error("reasoningEffort must not be empty");
@@ -819,44 +1020,56 @@ export class BridgeService {
     }
     const beforePrompt = await this.ledger.snapshot(task.taskId);
 
-    let models;
-    try {
-      models = await this.api.sessionModels(created.sessionId);
-    } catch (error) {
-      throw new DelegationSetupError(
-        "models",
-        `DSH root session ${created.sessionId} exists as task ${task.taskId}, but its model route could not be verified`,
-        created.sessionId,
-        task.taskId,
-        { cause: error },
-      );
-    }
-    if (!models.routable) {
-      if (modelProfile === "inherit" && reasoningEffort === undefined) {
+    let models: DshSessionModels | undefined;
+    if (visualRouting === undefined) {
+      try {
+        models = await this.api.sessionModels(created.sessionId);
+      } catch (error) {
         throw new DelegationSetupError(
           "models",
-          `DSH root session ${created.sessionId} selected ${formatModel(models.current)}, but its provider is not routable (task ${task.taskId})`,
+          `DSH root session ${created.sessionId} exists as task ${task.taskId}, but its model route could not be verified`,
           created.sessionId,
           task.taskId,
+          { cause: error },
         );
+      }
+      if (!models.routable) {
+        if (modelProfile === "inherit" && reasoningEffort === undefined) {
+          throw new DelegationSetupError(
+            "models",
+            `DSH root session ${created.sessionId} selected ${formatModel(models.current)}, but its provider is not routable (task ${task.taskId})`,
+            created.sessionId,
+            task.taskId,
+          );
+        }
       }
     }
 
     const shouldSelectModel = modelProfile !== "inherit" || reasoningEffort !== undefined;
-    let requestedSelection;
+    let requestedSelection: DshModelSelection | undefined;
+    let routedProfile: ModelProfile = modelProfile;
+    let visualFallback: VisualFallbackResult | undefined;
     if (shouldSelectModel) {
       try {
-        requestedSelection = resolveModelSelection(models, modelProfile, reasoningEffort);
-        await this.api.sessionSelectModel({
-          sessionId: created.sessionId,
-          provider: requestedSelection.provider,
-          model: requestedSelection.model,
-          ...(requestedSelection.reasoningEffort === undefined
-            ? {}
-            : { reasoningEffort: requestedSelection.reasoningEffort }),
-        });
-        models = await this.api.sessionModels(created.sessionId);
-        verifyModelSelection(requestedSelection, models);
+        if (visualRouting !== undefined) {
+          const selected = await this.selectVisualRouteWithFallback(created.sessionId, modelProfile, reasoningEffort);
+          requestedSelection = selected.requested;
+          models = selected.models;
+          routedProfile = selected.profile;
+          visualFallback = selected.fallback;
+        } else {
+          requestedSelection = resolveModelSelection(models!, modelProfile, reasoningEffort);
+          await this.api.sessionSelectModel({
+            sessionId: created.sessionId,
+            provider: requestedSelection.provider,
+            model: requestedSelection.model,
+            ...(requestedSelection.reasoningEffort === undefined
+              ? {}
+              : { reasoningEffort: requestedSelection.reasoningEffort }),
+          });
+          models = await this.api.sessionModels(created.sessionId);
+          verifyModelSelection(requestedSelection, models);
+        }
       } catch (error) {
         throw new DelegationSetupError(
           "model-selection",
@@ -864,14 +1077,19 @@ export class BridgeService {
           created.sessionId,
           task.taskId,
           { cause: error },
+          error instanceof VisualRouteFailedError ? error.lastFailureClass : undefined,
         );
       }
     }
 
+    let fallbackCoordinationWarning: string | undefined;
     let promptTrackingWarning: string | undefined;
     let promptIssuedRpcId: string | undefined;
     try {
       const promptReceipt = await this.api.sessionPrompt(promptPayload(this.config, created.sessionId, prompt, "queue"));
+      if (visualFallback !== undefined) {
+        fallbackCoordinationWarning = await this.recordVisualFallback(task.taskId, created.sessionId, visualFallback);
+      }
       const issuedRpcId = getDshUnaryMetadata(promptReceipt).issuedRpcId;
       promptIssuedRpcId = issuedRpcId;
       await this.ledger
@@ -905,25 +1123,28 @@ export class BridgeService {
       rootSessionId: task.sessionId,
       accepted: true,
       detached: waitSeconds === 0,
-      model: models.current,
-      routable: models.routable,
+      model: models!.current,
+      routable: models!.routable,
       modelRouting:
         requestedSelection === undefined
           ? {
               mode: "inherited" as const,
               profile: "inherit" as const,
-              selected: models.current,
+              selected: models!.current,
               persistsAsDshDefault: false,
             }
           : {
               mode: "selected" as const,
-              profile: modelProfile,
+              profile: routedProfile,
               requested: requestedSelection,
-              selected: models.current,
+              selected: models!.current,
               ...(selectionReason === undefined ? {} : { selectionReason }),
               persistsAsDshDefault: true,
               warning: "DSH session.selectModel also persists this selection as the DSH default for later sessions.",
             },
+      ...(visualRouting === undefined
+        ? {}
+        : { visualRouting: { ...visualRouting, fallback: visualFallback ?? null } }),
       ...(promptIssuedRpcId === undefined ? {} : { issuedRpcId: promptIssuedRpcId }),
       baseUrl:
         getHostEndpointSnapshot(this.api, {
@@ -933,6 +1154,7 @@ export class BridgeService {
       workspaceClaim,
       workspaceClaimSemantics: workspaceClaimSemantics(),
       ...(promptTrackingWarning === undefined ? {} : { coordinationWarning: promptTrackingWarning }),
+      ...(fallbackCoordinationWarning === undefined ? {} : { fallbackCoordinationWarning }),
       ...(renameWarning === undefined ? {} : { warning: renameWarning }),
     };
     if (waitSeconds === 0) return base;
@@ -947,7 +1169,21 @@ export class BridgeService {
   ) {
     const trimmed = prompt.trim();
     if (trimmed === "") throw new Error("prompt must not be empty");
-    const modelProfile = options.modelProfile ?? "inherit";
+    const policyDecision = resolveRoutePolicy({
+      ...(options.visualIntent === undefined ? {} : { visualIntent: options.visualIntent }),
+      ...(options.complexity === undefined ? {} : { complexity: options.complexity }),
+      ...(options.modelProfile === undefined ? {} : { modelProfile: options.modelProfile }),
+    });
+    const modelProfile = applyRoutePolicy(policyDecision);
+    // For visual-required requests the resolver guarantees complexity is set.
+    const visualRouting =
+      options.visualIntent === "required"
+        ? {
+            visualIntent: "required" as const,
+            complexity: options.complexity as Complexity,
+            decision: modelProfile,
+          }
+        : undefined;
     const reasoningEffort = options.reasoningEffort?.trim();
     if (options.reasoningEffort !== undefined && reasoningEffort === "") {
       throw new Error("reasoningEffort must not be empty");
@@ -955,53 +1191,71 @@ export class BridgeService {
     const selectionReason = options.selectionReason?.trim() || undefined;
     const view = await this.preflightWrite(taskId, options, true);
     const { task } = view;
-    let models = await this.api.sessionModels(task.sessionId);
-    if (!models.routable) {
-      if (modelProfile === "inherit" && reasoningEffort === undefined) {
-        throw new BridgeCapabilityError(
-          "model_unroutable",
-          `the root session's current route ${formatModel(models.current)} is not routable`,
-          { taskId, rootSessionId: task.sessionId, current: models.current },
-        );
+    let models: DshSessionModels | undefined;
+    if (visualRouting === undefined) {
+      models = await this.api.sessionModels(task.sessionId);
+      if (!models.routable) {
+        if (modelProfile === "inherit" && reasoningEffort === undefined) {
+          throw new BridgeCapabilityError(
+            "model_unroutable",
+            `the root session's current route ${formatModel(models.current)} is not routable`,
+            { taskId, rootSessionId: task.sessionId, current: models.current },
+          );
+        }
       }
     }
     const shouldSelectModel = modelProfile !== "inherit" || reasoningEffort !== undefined;
-    let requestedSelection;
+    let requestedSelection: DshModelSelection | undefined;
+    let routedProfile: ModelProfile = modelProfile;
+    let visualFallback: VisualFallbackResult | undefined;
     if (shouldSelectModel) {
       let modelSelectionMayHavePersisted = false;
       try {
-        requestedSelection = resolveModelSelection(models, modelProfile, reasoningEffort);
-        modelSelectionMayHavePersisted = true;
-        await this.api.sessionSelectModel({
-          sessionId: task.sessionId,
-          provider: requestedSelection.provider,
-          model: requestedSelection.model,
-          ...(requestedSelection.reasoningEffort === undefined
-            ? {}
-            : { reasoningEffort: requestedSelection.reasoningEffort }),
-        });
-        models = await this.api.sessionModels(task.sessionId);
-        verifyModelSelection(requestedSelection, models);
+        if (visualRouting !== undefined) {
+          const selected = await this.selectVisualRouteWithFallback(task.sessionId, modelProfile, reasoningEffort);
+          requestedSelection = selected.requested;
+          models = selected.models;
+          routedProfile = selected.profile;
+          visualFallback = selected.fallback;
+        } else {
+          requestedSelection = resolveModelSelection(models!, modelProfile, reasoningEffort);
+          modelSelectionMayHavePersisted = true;
+          await this.api.sessionSelectModel({
+            sessionId: task.sessionId,
+            provider: requestedSelection.provider,
+            model: requestedSelection.model,
+            ...(requestedSelection.reasoningEffort === undefined
+              ? {}
+              : { reasoningEffort: requestedSelection.reasoningEffort }),
+          });
+          models = await this.api.sessionModels(task.sessionId);
+          verifyModelSelection(requestedSelection, models);
+        }
       } catch (error) {
         throw new FollowupRoutingError(
           `the requested follow-up model profile ${modelProfile} was not verified; the follow-up prompt was not sent. If session.selectModel was attempted, that selection may already be the DSH default`,
           taskId,
           task.sessionId,
           modelProfile,
-          modelSelectionMayHavePersisted,
+          error instanceof VisualRouteFailedError ? error.selectModelAttempted : modelSelectionMayHavePersisted,
           { cause: error },
+          error instanceof VisualRouteFailedError ? error.lastFailureClass : undefined,
         );
       }
     }
+    let fallbackCoordinationWarning: string | undefined;
     let receipt;
     try {
       receipt = await this.api.sessionPrompt(promptPayload(this.config, task.sessionId, trimmed, mode));
+      if (visualFallback !== undefined) {
+        fallbackCoordinationWarning = await this.recordVisualFallback(task.taskId, task.sessionId, visualFallback);
+      }
     } catch (error) {
       throw new FollowupPromptError(
         taskId,
         task.sessionId,
         requestedSelection !== undefined,
-        models.current,
+        models!.current,
         { cause: error },
       );
     }
@@ -1023,29 +1277,33 @@ export class BridgeService {
       mode,
       deliveryTarget: mode === "queue" ? "next-turn" : "next-step",
       durableWhenClaimedByDsh: true,
-      model: models.current,
-      routable: models.routable,
+      model: models!.current,
+      routable: models!.routable,
       modelRouting:
         requestedSelection === undefined
           ? {
               mode: "inherited" as const,
               profile: "inherit" as const,
-              selected: models.current,
+              selected: models!.current,
               persistsAsDshDefault: false,
             }
           : {
               mode: "selected" as const,
-              profile: modelProfile,
+              profile: routedProfile,
               requested: requestedSelection,
-              selected: models.current,
+              selected: models!.current,
               ...(selectionReason === undefined ? {} : { selectionReason }),
               persistsAsDshDefault: true,
               warning: "DSH session.selectModel also persists this selection as the DSH default for later sessions.",
             },
+      ...(visualRouting === undefined
+        ? {}
+        : { visualRouting: { ...visualRouting, fallback: visualFallback ?? null } }),
       issuedRpcId,
       accepted: receipt.accepted,
       ...(receipt.command === undefined ? {} : { command: receipt.command }),
       ...(coordinationWarning === undefined ? {} : { coordinationWarning }),
+      ...(fallbackCoordinationWarning === undefined ? {} : { fallbackCoordinationWarning }),
       preflight: {
         cursor: view.ledger.cursor,
         connectionRevision: view.connection.revision,

@@ -86,7 +86,7 @@ event pump 即使无人调用 tail 也会运行。bridge 重启后从 JSONL 重�
 
 ## 追问与取消语义
 
-`dsh_followup(mode="queue")` 对应 DSH `next-turn`；`mode="steer"` 对应 `next-step`。queue 会在当前 turn 结束后启动后续 turn；steer 会在当前 turn 的下一步注入指导。follow-up 可以选择与 delegation 相同的语义模型档位和 catalog 支持的 reasoning effort。bridge 会在 prompt 前写入并重新读取验证；验证失败不发送 prompt，但已尝试的 `session.selectModel` 可能已经持久化成 DSH 全局默认值。省略路由字段时继承当前 route。两者都不会自动重试写操作。
+`dsh_followup(mode="queue")` 对应 DSH `next-turn`；`mode="steer"` 对应 `next-step`。queue 会在当前 turn 结束后启动后续 turn；steer 会在当前 turn 的下一步注入指导。follow-up 可以选择与 delegation 相同的语义模型档位和 catalog 支持的 reasoning effort。bridge 会在 prompt 前写入并重新读取验证；验证失败不发送 prompt，但已尝试的 `session.selectModel` 可能已经持久化成 DSH 全局默认值。省略路由字段时继承当前 route。prompt 写入永不自动重试；唯一的有界重试是“视觉路由”一节描述的 visual-required 路由选择/验证阶段。
 
 每次 session mutation 前都会重新读取 `session.list`/history 并 reconcile；follow-up 还会读取 live `session.models`，报告实际 route。mutation tool 接受可选 `sinceCursor` 与 `expectedRevision`。如果 reconcile 后的视图不同，bridge 返回带 observed changes 的 `stale_view`，而不是直接写入。
 
@@ -98,6 +98,14 @@ event pump 即使无人调用 tail 也会运行。bridge 重启后从 JSONL 重�
 - 第三方 tool 只有在遵守 `AbortSignal` 时才能被取消。
 
 `dsh_cancel(scope="queue")` 使用当前 mux queue snapshot，对每个 item id 发出一次 `session.updateQueue(remove)`。该操作不是原子的，结果会分别列出 `requested`、`removed`、`alreadyClaimed` 和 `failed`，不会承诺 all-or-nothing queue clear。
+
+## 视觉路由
+
+视觉工作由调用方声明：`visualIntent="required"` 加 `complexity="low"|"high"`。低复杂度自动选择官方原生 Flash Vision（`deepseek-official/deepseek-v4-flash-vision-exp`）。高复杂度必须由用户在 `official-flash-vision` 与 `modlens-pro` 之间明确选择；没有选择时，操作会在任何 session、selection 或 prompt 之前以 `user_choice_required` 失败关闭。`modlens-flash` 绝不是首选。
+
+获批视觉路由的选择/验证阶段（读取 `session.models`、`session.selectModel`、重新读取验证）可以做有界次数的重试，但仅限于每次失败都是明确分类的强制因素：timeout、Host 不可达或 HTTP 5xx。HTTP 400/422 归类为无效输入，HTTP 404 为模型缺失，HTTP 401/403 与 RPC permission/credential 错误码为策略拒绝，非 JSON 或非法 envelope 响应为配置/协议错误；这些都不会触发重试或 fallback。只有在有界重试全部因强制因素耗尽后，bridge 才会恰好尝试 ModLens Flash 一次。失败的 fallback 会失败关闭并报告其自身的失败分类；它绝不会被伪装成成功，其他非幂等写入（`session.create`、prompt/follow-up、cancel、queue mutation、`/api/respond`）也永不重试。任何选择写入可能已持久化为 DSH 全局默认值，这一副作用会持续披露。
+
+fallback 成功时，bridge 会在 event ledger 中记录一个最小且非敏感的 coordination marker（profile id、尝试次数、失败类别和简短 notice——绝不包含 prompt 文本、图片路径、凭据、history 或错误正文），并通过 `dsh_status.visualFallback` 暴露；调用方在任务结束时用提供的 notice 简要告知用户。
 
 ## 工作区协作
 
@@ -118,14 +126,14 @@ workspace claim 是 cooperative coordination。它能阻止同一 bridge store �
 ## 明确限制
 
 - 不管理 Host 进程生命周期、auth layer、pidfile、port lock，也不会自动启动 Host。
-- 不自动重试非幂等写操作，包括 `session.create`、`session.selectModel`、prompt/follow-up、cancel、queue mutation 和 `/api/respond`。
+- 除 visual-required 路由的选择/验证阶段及其仅在强制因素下的单次 ModLens Flash fallback（见“视觉路由”一节）外，不自动重试非幂等写操作；`session.create`、prompt/follow-up、cancel、queue mutation 和 `/api/respond` 永不重试。
 - WebSocket 断开会产生 `host_unreachable`/unknown，不会把 task 误判为失败；只读 reconnect/history recovery 会自动继续。
 - Host 重启会丢失 process-local active turn、pending interaction、queue 和 background-job state；bridge 不承诺 seamless continuation。
 - fresh history 仍停在 `turn/start`，但 fresh `session.list` 表明 session 已不再运行时，status 会记录不含正文的 `interrupted` coordination marker；后续 durable `turn/end` 会在 reconcile 时覆盖它。
 - DSH durable session/history 可以在 Host 重启后保留，但只有创建记录、尚无 event 的 session 可能延迟出现。bridge process-restart mock test 使用带 durable event 的 session；当前实现运行没有做 live rc.6 restart test。
 - mux connect 或 reconnect 后，只有 rc.6 发出真实 `session/queue` snapshot，queue state 才能确定；bridge 不会根据 `session/subscribed` 推断空 queue。
 - 普通用户创建的 session fork 不会折叠进 BridgeTask；session-backed subagent descendant 会。
-- Host-origin affinity 受配置约束，不存储在严格 task mapping 中。更改显式 `DSH_HOST_URL` 后不要复用旧 `DSH_BRIDGE_HOME`；不支持 per-task cross-Host migration。在 Windows 上显式启用 `desktop-auto` 时，同一个 DSH Desktop profile 的新 generation 可以绑定到另一个临时 loopback 端口。旧端点发生 transport failure 后 client 会使其失效，connection manager 在下一次重连迭代中重新解析。失败写操作永远不会自动重试。若切换 profile 后已映射 session 不再存在，状态仍是 `session_not_found`；自动恢复不会按标题重新映射。显式接管是由操作者发起的独立流程，必须使用刚发现的精确 session id。
+- Host-origin affinity 受配置约束，不存储在严格 task mapping 中。更改显式 `DSH_HOST_URL` 后不要复用旧 `DSH_BRIDGE_HOME`；不支持 per-task cross-Host migration。在 Windows 上显式启用 `desktop-auto` 时，同一个 DSH Desktop profile 的新 generation 可以绑定到另一个临时 loopback 端口。旧端点发生 transport failure 后 client 会使其失效，connection manager 在下一次重连迭代中重新解析。失败的 prompt 写入永不重试；唯一的有界重试是“视觉路由”一节描述的视觉路由选择/验证阶段。若切换 profile 后已映射 session 不再存在，状态仍是 `session_not_found`；自动恢复不会按标题重新映射。显式接管是由操作者发起的独立流程，必须使用刚发现的精确 session id。
 - workspace claim 不能提供 OS 级排他，fresh write preflight 也不能消除 Web client 的 TOCTOU race。项目不承诺完整的“多调用方加交互式 Web 同时操作无冲突”。
 - 不支持 exactly-once delivery、atomic queue clear、`events.mux.since` resume、argument-dependent caller approval policy、自动取消 background job，或通过 `host.describe.version` 检测 Host package 版本。
 - 真实浏览器可见的端到端交互属于 operator acceptance，不是 `npm test` 的组成部分。修改 DSH 版本、model route、agent preset、event reconciliation 或 mutation semantics 后，请执行[验证指南](validation.md)。

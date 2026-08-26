@@ -46,6 +46,15 @@ export interface CurrentTurnSnapshot {
   lastAssistantMessagePointer?: LedgerEventPointer;
 }
 
+/** Non-sensitive coordination marker for a used ModLens Flash visual fallback. */
+export interface VisualFallbackCoordination {
+  profile: string;
+  approvedRoute?: string;
+  approvedRouteAttempts?: number;
+  lastFailureClass?: string;
+  notice?: string;
+}
+
 export interface LedgerSnapshot {
   cursor: number;
   earliestCursor: number;
@@ -56,6 +65,7 @@ export interface LedgerSnapshot {
   terminalMissingFinal: boolean;
   pendingInteractions: LedgerPendingInteraction[];
   currentTurn?: CurrentTurnSnapshot;
+  visualFallback?: VisualFallbackCoordination;
   unrecoverableGap?: unknown;
   logPath: string;
 }
@@ -366,6 +376,23 @@ function recordMetadata(recordType: string, input: LedgerAppendInput, state: Tas
 }
 
 function sanitizedRaw(input: LedgerAppendInput, recordType: string, sourceSessionId: string, sourceSeq?: number): unknown {
+  if (recordType === "bridge/visual-fallback") {
+    const rawObject = asObject(input.raw);
+    const profile = stringField(rawObject, "profile");
+    const approvedRoute = stringField(rawObject, "approvedRoute");
+    const approvedRouteAttempts = numberField(rawObject, "approvedRouteAttempts");
+    const lastFailureClass = stringField(rawObject, "lastFailureClass");
+    const notice = stringField(rawObject, "notice");
+    return {
+      type: recordType,
+      sessionId: sourceSessionId,
+      ...(profile === undefined ? {} : { profile }),
+      ...(approvedRoute === undefined ? {} : { approvedRoute }),
+      ...(approvedRouteAttempts === undefined ? {} : { approvedRouteAttempts }),
+      ...(lastFailureClass === undefined ? {} : { lastFailureClass }),
+      ...(notice === undefined ? {} : { notice }),
+    };
+  }
   if (recordType === "session/event") {
     const event = eventOf(input.raw);
     const eventType = stringField(event, "type") ?? recordType;
@@ -503,6 +530,27 @@ function foldRecord(fold: FoldState, record: LedgerRecord): void {
   if (record.type === "bridge/turn-interrupted") {
     setExecution(fold, "interrupted");
     assignSnapshot(fold, { terminalMissingFinal: fold.snapshot.finalMessagePointer === undefined });
+    return;
+  }
+
+  if (record.type === "bridge/visual-fallback") {
+    const value = asObject(record.coordination);
+    const profile = stringField(value, "profile");
+    if (profile === "modlens-flash") {
+      const approvedRoute = stringField(value, "approvedRoute");
+      const approvedRouteAttempts = numberField(value, "approvedRouteAttempts");
+      const lastFailureClass = stringField(value, "lastFailureClass");
+      const notice = stringField(value, "notice");
+      assignSnapshot(fold, {
+        visualFallback: {
+          profile,
+          ...(approvedRoute === undefined ? {} : { approvedRoute }),
+          ...(approvedRouteAttempts === undefined ? {} : { approvedRouteAttempts }),
+          ...(lastFailureClass === undefined ? {} : { lastFailureClass }),
+          ...(notice === undefined ? {} : { notice }),
+        },
+      });
+    }
     return;
   }
 
@@ -712,6 +760,7 @@ function digestRecord(record: LedgerRecord): TailDigestRecord {
     return protectedDigest(record, record.coordination);
   }
   if (record.type === "bridge/turn-interrupted") return protectedDigest(record, record.coordination);
+  if (record.type === "bridge/visual-fallback") return protectedDigest(record, record.coordination);
 
   const event = eventOf(record.coordination);
   const eventObject = asObject(event);
@@ -1088,6 +1137,7 @@ function cloneSnapshot(snapshot: LedgerSnapshot): LedgerSnapshot {
     terminalMissingFinal: snapshot.terminalMissingFinal,
     pendingInteractions: snapshot.pendingInteractions.map((pending) => ({ ...pending })),
     ...(snapshot.currentTurn === undefined ? {} : { currentTurn: { ...snapshot.currentTurn } }),
+    ...(snapshot.visualFallback === undefined ? {} : { visualFallback: { ...snapshot.visualFallback } }),
     ...(snapshot.unrecoverableGap === undefined ? {} : { unrecoverableGap: snapshot.unrecoverableGap }),
     logPath: snapshot.logPath,
   };

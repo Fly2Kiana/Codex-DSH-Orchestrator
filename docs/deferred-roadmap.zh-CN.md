@@ -9,7 +9,7 @@
 - Codex 与 Claude Code 共用一套 connect-only MCP Runtime。
 - Windows DSH Desktop loopback 自动发现已验证；不扫描端口，也不接管 Host 生命周期。
 - 支持新建委派、已知任务 follow-up、有界观察、取消、类型化问题和人工把关审批。
-- 支持 catalog 校验后的 `flash`、`pro`、`modlens-flash`、`modlens-pro` 及模型声明的 reasoning effort；省略路由时继承 DSH 当前 route。
+- 支持 catalog 校验后的 `flash`、`pro`、`official-flash-vision`、`modlens-flash`、`modlens-pro` 及模型声明的 reasoning effort；省略路由时继承 DSH 当前 route。
 - 支持仅元数据发现，并以新鲜的 id/update/cwd/title 前置条件显式接管一个精确、空闲的 root DSH session。
 - 通过 MCP initialization instructions 与工具说明引导调用方生成 compact handoff；Agentlink 本身不会读取调用方聊天或工作区文件。
 
@@ -55,14 +55,14 @@
    - 启动条件：实际观察到 crash residue，或批准状态格式迁移。当前事务会处理普通 claim 拒绝与运行时异常，但不宣称跨两个文件的文件系统事务语义。
 
 9. **ModLens provider 韧性与数据出域策略**
-   - 暂缓内容：上游 timeout 透传与结构化 timeout `nextSteps`、基于证据的图片降采样/重试，以及可选的第二视觉 provider failover route。
+   - 暂缓内容：上游 timeout 透传与结构化 timeout `nextSteps`、基于证据的图片降采样/重试，以及超出已实现单次 ModLens Flash 终末 fallback 的可选第二视觉 provider failover route。
    - 启动条件：先决定向上游贡献还是维护本地 fork，并由操作方批准 provider 凭据、成本、数据出域、图片保真度取舍和一次性验收测试。Agentlink 不得自动改写 profile、认证、provider route、代理、DNS 或其他网络设置。
 
 ## 仍不在范围内
 
 - 启动、关闭、重启、安装或重新配置 DSH Desktop/Web Host。
 - 自动安装 DSH 插件或迁移认证/profile。
-- 自动 provider failover、图片预处理/重试，或 DSH profile/网络变更。
+- 超出已实现单次 ModLens Flash 视觉 fallback 的一般性自动 provider failover、图片预处理/重试，或 DSH profile/网络变更。
 - 对旧 DSH 对话正文做语义匹配，或仅因措辞相似就自动复用。
 - 任意 provider/model 字符串、自动批准、凭据传输或在 bridge 中持久化对话正文。
 - 未经单独发布与安全决策的 npm 发布或原生 DSH bundle。
