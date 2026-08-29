@@ -166,6 +166,7 @@ if ($doctorExitCode -ne 0) {
 
   不要提交这个路径，也不要把旧 bridge home 复制到另一台机器——新机器请使用新的 home。DSH 对话历史归 DSH Web Host 所有，而 bridge 的任务映射、cursor 和 claim 不会自动迁移。
 - Windows `desktop-auto` 是显式选择的模式。CI 只 mock 发现行为，不代表真实 Desktop 的安装或登录已验收。配置工具不会启动、关闭或登录 DSH Desktop。
+- macOS 已在 Node.js 22 和 24 上纳入源码级 CI，覆盖构建、测试和打包 dry-run；这不等同于真实 macOS DSH/Codex 端到端验收。macOS 请使用用户自行管理的静态 DSH Host URL；仅支持 Windows 的 `desktop-auto` 模式不可用。
 
 ## 给 AI Agents
 

@@ -2,7 +2,7 @@
 
 **English** | [简体中文](architecture.zh-CN.md)
 
-This document contains the bridge semantics that are intentionally kept out of the user-facing README. It describes the current `0.1.0-alpha.2` behavior, not a permanent compatibility promise.
+This document contains the bridge semantics that are intentionally kept out of the user-facing README. It describes the current source-tree behavior; release and compatibility promises remain version-specific.
 
 ## Positioning and Host lifecycle
 
