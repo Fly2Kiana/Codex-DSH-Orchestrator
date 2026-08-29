@@ -169,6 +169,7 @@ A clean script exit means that the local installation steps completed. It does n
 
   Do not commit this path, and do not copy an old bridge home to another machine — use a fresh home there. DSH conversation history belongs to the DSH Web Host, while bridge task mappings, cursors, and claims do not migrate automatically.
 - Windows `desktop-auto` is opt-in. CI mocks discovery behavior and does not prove real Desktop installation or login. The setup wizard never starts, stops, or logs in to DSH Desktop.
+- macOS is covered by source-level CI on Node.js 22 and 24. This validates the build, tests, and package dry run only; it is not live macOS DSH/Codex end-to-end acceptance. On macOS, use a user-managed static DSH Host URL; the Windows-only `desktop-auto` mode is not available.
 
 ## For AI Agents
 

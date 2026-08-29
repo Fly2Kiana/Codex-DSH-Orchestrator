@@ -15,6 +15,9 @@ does not announce an npm publication.
   classes remain fail-closed.
 - Added non-sensitive fallback status reporting and regression coverage for
   prompt-failure handling and legacy explicit model-profile compatibility.
+- Added macOS Node.js 22/24 CI coverage and normalized the macOS temporary
+  directory fixture so the test suite respects the existing symlink-safe
+  installation policy.
 
 ## 0.1.0-alpha.4 — portability documentation candidate
 
