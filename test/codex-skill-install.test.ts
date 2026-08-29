@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -11,7 +11,8 @@ import {
 } from "../src/codex-skill-install.js";
 
 async function temporaryProject(context: { after: (callback: () => void | Promise<void>) => void }): Promise<string> {
-  const project = await mkdtemp(join(tmpdir(), "dsh-agentlink-codex-skill-"));
+  const canonicalTempRoot = await realpath(tmpdir());
+  const project = await mkdtemp(join(canonicalTempRoot, "dsh-agentlink-codex-skill-"));
   context.after(() => rm(project, { recursive: true, force: true }));
   return project;
 }
@@ -114,6 +115,6 @@ test("Codex skill installation rejects a symlinked parent", async (context) => {
 
   await assert.rejects(
     () => prepareCodexSkillInstall(resolveCodexSkillTarget(project), false),
-    /refusing to install Codex skill through symlinked directory/,
+    new Error(`refusing to install Codex skill through symlinked directory: ${join(project, ".agents")}`),
   );
 });
