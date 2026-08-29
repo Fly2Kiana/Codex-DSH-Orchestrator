@@ -16,9 +16,13 @@ npm run check
 npm pack --dry-run --ignore-scripts
 ```
 
-The automated matrix covers x64 Ubuntu and Windows with Node.js 22 and 24.
-Node.js 22 is the project floor; other operating systems, architectures, and
-future Node.js majors need their own validation.
+The automated matrix covers GitHub-hosted Ubuntu, Windows, and macOS runners
+with Node.js 22 and 24. The macOS jobs validate the source build, test suite,
+and package dry run on the selected hosted runner; they do not establish APFS
+directory-fsync semantics, Intel/Apple Silicon parity, GUI-launched PATH
+behavior, or a live DSH Host/Codex setup. Node.js 22 is the project floor;
+other operating systems, architectures, and future Node.js majors need their
+own validation.
 
 The test suite uses mock DSH Hosts for deterministic coverage. It exercises
 bridge state, cursor recovery, event reduction, questions and approvals,
@@ -96,6 +100,10 @@ is available.
   an already-running supported DSH Desktop Host and the documented loopback
   discovery prerequisites; CI mocks these behaviors and does not constitute a
   real Desktop installation or login check.
+- macOS does not use `desktop-auto`; use a user-managed static DSH Host URL or
+  another supported static Host configuration. A GUI-launched application may
+  expose a different `PATH` from an interactive shell, so verify CLI discovery
+  explicitly rather than changing shell profiles automatically.
 
 ## Codex skill installation check
 
