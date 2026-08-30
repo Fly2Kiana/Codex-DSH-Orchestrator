@@ -6,6 +6,8 @@ does not announce an npm publication.
 
 ## Unreleased
 
+## 0.1.0-alpha.5 — source release
+
 - Added a bounded visual-routing policy: non-visual routine and difficult work
   keeps the existing Flash/Pro distinction; low-complexity visual work uses
   the official native Flash Vision route.
