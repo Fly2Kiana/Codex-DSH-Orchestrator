@@ -3,6 +3,8 @@ import { once } from "node:events";
 
 import { WebSocketServer, type WebSocket } from "ws";
 
+import { safeJsonStringify } from "./safe-json.js";
+
 type JsonObject = Record<string, unknown>;
 
 export interface RecordedUnaryRequest {
@@ -48,7 +50,7 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 
 function writeJson(response: ServerResponse, statusCode: number, body: unknown) {
   response.writeHead(statusCode, { "content-type": "application/json" });
-  response.end(JSON.stringify(body));
+  response.end(safeJsonStringify(body));
 }
 
 function fail(response: ServerResponse, message: string) {

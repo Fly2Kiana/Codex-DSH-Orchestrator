@@ -10,6 +10,7 @@ import { test } from "node:test";
 import { WebSocketServer, type WebSocket } from "ws";
 
 import { TaskStore } from "../src/task-store.js";
+import { safeJsonStringify } from "./support/safe-json.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -39,7 +40,7 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 
 function writeJson(response: ServerResponse, statusCode: number, body: unknown): void {
   response.writeHead(statusCode, { "content-type": "application/json" });
-  response.end(JSON.stringify(body));
+  response.end(safeJsonStringify(body));
 }
 
 function hostResponse(rpcId: string, value: unknown): JsonObject {
