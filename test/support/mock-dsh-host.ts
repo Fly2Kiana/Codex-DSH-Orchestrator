@@ -3,6 +3,8 @@ import { once } from "node:events";
 
 import { WebSocketServer, type WebSocket } from "ws";
 
+import { safeJsonStringify } from "./safe-json.js";
+
 type JsonObject = Record<string, unknown>;
 
 export interface RecordedUnaryRequest {
@@ -48,7 +50,7 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 
 function writeJson(response: ServerResponse, statusCode: number, body: unknown) {
   response.writeHead(statusCode, { "content-type": "application/json" });
-  response.end(JSON.stringify(body));
+  response.end(safeJsonStringify(body));
 }
 
 function fail(response: ServerResponse, message: string) {
@@ -125,8 +127,8 @@ export async function startMockDshHost(options: { port?: number } = {}): Promise
         rpcId: recorded.rpcId,
         result: { ok: true, value: handler(recorded.payload, recorded) },
       });
-    } catch (error) {
-      writeJson(response, 500, { error: error instanceof Error ? error.message : String(error) });
+    } catch {
+      writeJson(response, 500, { error: "Internal server error" });
     }
   });
 
