@@ -110,8 +110,8 @@ async function startLifecycleHost(sessionId: string): Promise<LifecycleHost> {
       }
 
       writeJson(response, 404, { error: `unexpected method ${method}` });
-    } catch (error) {
-      writeJson(response, 500, { error: error instanceof Error ? error.message : String(error) });
+    } catch {
+      writeJson(response, 500, { error: "Internal server error" });
     }
   });
 

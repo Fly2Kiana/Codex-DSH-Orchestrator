@@ -127,8 +127,8 @@ export async function startMockDshHost(options: { port?: number } = {}): Promise
         rpcId: recorded.rpcId,
         result: { ok: true, value: handler(recorded.payload, recorded) },
       });
-    } catch (error) {
-      writeJson(response, 500, { error: error instanceof Error ? error.message : String(error) });
+    } catch {
+      writeJson(response, 500, { error: "Internal server error" });
     }
   });
 
