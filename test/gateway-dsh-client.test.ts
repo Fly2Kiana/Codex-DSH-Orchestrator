@@ -63,6 +63,55 @@ test("official missing authorization is reported distinctly and does not trigger
   } finally { await connection.stop(); wire.close(); await rm(home, { recursive: true, force: true }); }
 });
 
+test("official model inspection refuses missing selection evidence instead of assuming the global default", async () => {
+  const host = await startMockGatewayHost();
+  const wire = new GatewayConnection({ endpoint: { mode: "static", resolve: async () => ({ baseUrl: host.baseUrl, source: "configured" }) },
+    getConnectToken: () => "fixture", timeoutMs: 1_000 });
+  const api = new GatewayDshClient(wire, 1_000);
+  host.handle("session/modelCatalog", () => ({
+    default: { provider: "deepseek-account", model: "deepseek-flash" }, routableProviders: ["deepseek-account"],
+    groups: [{ id: "deepseek-account", name: "Account", models: [{ id: "deepseek-flash", name: "Flash" }] }], failures: [],
+  }));
+  host.handle("session/projections", () => ({ kind: "sequenced", asOfSeq: 0, values: {} }));
+  try {
+    await assert.rejects(api.sessionModels("sample"), { code: "gateway/projections-unavailable" });
+    assert.equal(host.requests.some((request) => request.method === "session/selectModel"), false);
+    assert.equal(host.requests.some((request) => request.method === "session/prompt"), false);
+    host.handle("session/projections", () => ({ kind: "sequenced", asOfSeq: 0,
+      values: { modelSelection: { next: null, lastUsed: null } } }));
+    assert.deepEqual((await api.sessionModels("sample")).current, { provider: "deepseek-account", model: "deepseek-flash" });
+  } finally { wire.close(); await host.close(); }
+});
+
+test("official protocol and Peer ownership failures stop background reconnect with a distinct status", async () => {
+  for (const scenario of [
+    { options: { rpcStatus: 404 }, availability: "unsupported_protocol" },
+    { options: { socketStatus: 409 }, availability: "peer_conflict" },
+    { options: { eventAfterReady: { type: "waterfall", eventId: 42 } }, availability: "unsupported_protocol" },
+  ]) {
+    const host = await startMockGatewayHost(scenario.options);
+    const home = await mkdtemp(join(tmpdir(), "gateway-terminal-test-"));
+    const wire = new GatewayConnection({ endpoint: { mode: "static", resolve: async () => ({ baseUrl: host.baseUrl, source: "configured" }) },
+      getConnectToken: () => "fixture", timeoutMs: 1_000 });
+    const api = new GatewayDshClient(wire, 1_000);
+    const config = { hostUrl: host.baseUrl, homeDir: home, hostProtocol: "gateway" as const,
+      requestTimeoutMs: 1_000, allowRemoteHost: false };
+    const connection = new DshConnectionManager(config, api, new TaskStore(home), new EventLedger(home), { reconnectDelayMs: 2 });
+    host.handle("session/list", () => ({ items: [] }));
+    try {
+      connection.start();
+      const deadline = Date.now() + 2_000;
+      while (["connecting", "connected"].includes(connection.snapshot().availability) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      assert.equal(connection.snapshot().availability, scenario.availability);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      assert.equal(connection.snapshot().availability, scenario.availability);
+      assert.equal(host.connectCount, 1);
+    } finally { await connection.stop(); wire.close(); await host.close(); await rm(home, { recursive: true, force: true }); }
+  }
+});
+
 test("official observation scopes history and requires an explicit exactly-once approval response", async () => {
   const host = await startMockGatewayHost();
   const wire = new GatewayConnection({ endpoint: { mode: "static", resolve: async () => ({ baseUrl: host.baseUrl, source: "configured" }) },
@@ -121,6 +170,43 @@ test("official history uses the exact follow cut for paging and does not request
   } finally { wire.close(); await host.close(); }
 });
 
+test("settled and cancelled official interactions cannot be reintroduced within the same generation", async () => {
+  const host = await startMockGatewayHost();
+  const wire = new GatewayConnection({ endpoint: { mode: "static", resolve: async () => ({ baseUrl: host.baseUrl, source: "configured" }) },
+    getConnectToken: () => "fixture", timeoutMs: 1_000 });
+  const api = new GatewayDshClient(wire, 1_000);
+  const controller = new AbortController();
+  host.onStream((stream) => host.send(stream, { type: "snapshot", header: { id: "sample" }, cursor: -1,
+    records: [], hasMore: false, projections: { asOfSeq: -1, values: {} } }));
+  host.handle("$events/result", () => undefined);
+  api.trackSessions(["sample"]);
+  const mux = api.openMux(controller.signal);
+  try {
+    await mux.next();
+    const source = host.streams.find((stream) => stream.endpoint === "$events")!;
+    for (const outcome of ["answered", "cancelled"]) {
+      const original = { type: "waterfall", event: "approval/request", eventId: outcome,
+        agentId: "sample", request: { toolName: "read" } };
+      host.send(source, original);
+      assert.equal((await mux.next()).value?.rpcId, outcome);
+      if (outcome === "answered") {
+        assert.deepEqual(await api.respond({ type: "client-response", rpcId: outcome, result: { ok: true,
+          value: { sessionId: "sample", approvalId: outcome, outcome: "rejected" } } }), { accepted: true });
+      } else {
+        host.send(source, { type: "cancel", eventId: outcome });
+        assert.equal((await mux.next()).value?.payload.type, "approval/resolved");
+      }
+      host.send(source, original);
+      host.send(source, { ...original, eventId: `${outcome}-barrier` });
+      assert.equal((await mux.next()).value?.rpcId, `${outcome}-barrier`);
+      assert.deepEqual(await api.respond({ type: "client-response", rpcId: outcome, result: { ok: true,
+        value: { sessionId: "sample", approvalId: outcome, outcome: "allowed-once" } } }), { accepted: false, reason: "not-pending" });
+    }
+    assert.equal(host.requests.filter((request) => request.args.eventId === "answered").length, 1);
+    assert.equal(host.requests.some((request) => request.args.eventId === "cancelled"), false);
+  } finally { controller.abort(); await mux.return(); wire.close(); await host.close(); }
+});
+
 test("official question events remain typed, cancelled requests cannot be replayed and timed waits stay with the Host", async () => {
   const host = await startMockGatewayHost();
   const wire = new GatewayConnection({ endpoint: { mode: "static", resolve: async () => ({ baseUrl: host.baseUrl, source: "configured" }) },
@@ -175,7 +261,8 @@ test("official mock Host completes the bridge delegate/result/follow-up loop wit
   host.handle("session/create", () => { created = true; return { sessionId: "sample" }; });
   host.handle("session/modelCatalog", () => ({ default: { provider: "deepseek-account", model: "deepseek-flash" },
     routableProviders: ["deepseek-account"], groups: [{ id: "deepseek-account", name: "Account", models: [{ id: "deepseek-flash", name: "Flash" }] }], failures: [] }));
-  host.handle("session/projections", () => ({ kind: "sequenced", asOfSeq: events.length - 1, values: {} }));
+  host.handle("session/projections", () => ({ kind: "sequenced", asOfSeq: events.length - 1,
+    values: { modelSelection: { next: null, lastUsed: null } } }));
   host.handle("session/rename", () => ({ title: "Fixture", seq: 0 }));
   host.handle("session/page", ({ request }) => ({ records: events.filter((event) => event.seq <= request.throughSeq &&
     (request.beforeSeq === undefined || event.seq < request.beforeSeq)).map((event) => ({ type: "event", event })), hasMore: false }));
@@ -211,6 +298,10 @@ test("official mock Host completes the bridge delegate/result/follow-up loop wit
     connection.start();
     const task = await service.delegate({ cwd: home, prompt: "Return OK", workspaceMode: "read-only" });
     await final(task.taskId, "OK 1");
+    assert.equal(connection.snapshot().testedAgainstDshVersion, null);
+    assert.equal(connection.snapshot().testedProtocolContract, "dsh-v0.2.1-rc.2");
+    assert.equal(connection.snapshot().compatibility, "untested");
+    assert.equal(connection.snapshot().warning?.includes("0.1.0-rc.6"), false);
     await service.continueTask(task.taskId, "Return OK again", "queue");
     await final(task.taskId, "OK 2");
     assert.equal(host.requests.filter((request) => request.method === "session/create").length, 1);

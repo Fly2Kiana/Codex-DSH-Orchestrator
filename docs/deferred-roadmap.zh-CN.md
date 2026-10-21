@@ -6,6 +6,11 @@
 
 ## 当前已实现基线
 
+本节描述 legacy adapter 已验证的工作流。新版官方 Desktop Gateway adapter
+仍为显式启用、尚未完成真实闭环验收的独立路径；能力缺口与授权边界见
+[官方 Desktop Gateway 说明](official-desktop-gateway.md)。不能将旧路径的验收
+结果当作新版 adapter 已通过验证。
+
 - Codex 与 Claude Code 共用一套 connect-only MCP Runtime。
 - Windows DSH Desktop loopback 自动发现已验证；不扫描端口，也不接管 Host 生命周期。
 - 支持新建委派、已知任务 follow-up、有界观察、取消、类型化问题和人工把关审批。

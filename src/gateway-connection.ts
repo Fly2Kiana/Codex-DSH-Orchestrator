@@ -224,6 +224,10 @@ export class GatewayConnection {
         signal: requestSignal,
       });
       if (response.status === 401 || response.status === 403) throw failure("auth_rejected");
+      // A missing/method-incompatible endpoint is not a network outage. Stop
+      // background reconnect rather than repeatedly minting API Peers against
+      // an incompatible Host. Keep untrusted response bodies out of errors.
+      if (response.status >= 400 && response.status < 500) throw failure("unsupported_protocol");
       if (!response.ok) throw failure("transport_failure");
       const decoded = responseSchema.safeParse(await this.#json(response));
       if (!decoded.success || decoded.data.rpcId !== rpcId) throw failure("unsupported_protocol");

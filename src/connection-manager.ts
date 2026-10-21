@@ -22,7 +22,7 @@ import type { TaskRecord, TaskStore } from "./task-store.js";
 export const TESTED_DSH_VERSION = "0.1.0-rc.6";
 
 export type HostAvailability = "connecting" | "connected" | "host_unreachable" | "stopped"
-  | "auth_required" | "auth_rejected" | "unsupported_protocol";
+  | "auth_required" | "auth_rejected" | "unsupported_protocol" | "peer_conflict";
 
 export interface HostConnectionSnapshot {
   availability: HostAvailability;
@@ -33,7 +33,8 @@ export interface HostConnectionSnapshot {
   disconnectedAt?: string;
   hostDescribeProductVersion?: string;
   declaredDshVersion?: string;
-  testedAgainstDshVersion: typeof TESTED_DSH_VERSION;
+  testedAgainstDshVersion: typeof TESTED_DSH_VERSION | null;
+  testedProtocolContract?: string;
   compatibility: "capability-probed" | "untested" | "unknown";
   warning?: string;
   lastError?: string;
@@ -298,7 +299,7 @@ export class DshConnectionManager implements DshConnection {
       baseUrl: endpoint.resolvedBaseUrl ?? endpoint.configuredBaseUrl ?? null,
       connectionEpoch: 0,
       revision: 0,
-      testedAgainstDshVersion: TESTED_DSH_VERSION,
+      testedAgainstDshVersion: config.hostProtocol === "gateway" ? null : TESTED_DSH_VERSION,
       compatibility: "unknown",
       ...(config.declaredDshVersion === undefined ? {} : { declaredDshVersion: config.declaredDshVersion }),
       capabilities: {
@@ -557,8 +558,14 @@ export class DshConnectionManager implements DshConnection {
       });
     }
     const declaredVersion = this.config.declaredDshVersion;
-    const compatibility = declaredVersion === TESTED_DSH_VERSION ? "capability-probed" : "untested";
-    const warnings = [
+    const gateway = this.config.hostProtocol === "gateway";
+    const protocolContract = gateway && typeof description.protocolContract === "string" ? description.protocolContract : undefined;
+    const compatibility = !gateway && declaredVersion === TESTED_DSH_VERSION ? "capability-probed" : "untested";
+    const warnings = gateway ? [
+      "Official Harness Gateway wire compatibility does not verify the installed Desktop/core version or live model behavior",
+      declaredVersion === undefined ? "Installed DSH product version is unknown to the bridge"
+        : `Operator-declared DSH version ${declaredVersion} has not been verified by the Gateway`,
+    ] : [
       declaredVersion === undefined
         ? `DSH CLI/package version is unknown to the bridge runtime; only ${TESTED_DSH_VERSION} was locally verified`
         : declaredVersion === TESTED_DSH_VERSION
@@ -579,7 +586,8 @@ export class DshConnectionManager implements DshConnection {
       revision: this.state.revision,
       connectedAt: new Date().toISOString(),
       hostDescribeProductVersion: description.version,
-      testedAgainstDshVersion: TESTED_DSH_VERSION,
+      testedAgainstDshVersion: gateway ? null : TESTED_DSH_VERSION,
+      ...(protocolContract === undefined ? {} : { testedProtocolContract: protocolContract }),
       compatibility,
       warning: warnings.join("; "),
       ...(this.config.declaredDshVersion === undefined ? {} : { declaredDshVersion: this.config.declaredDshVersion }),
@@ -613,7 +621,7 @@ export class DshConnectionManager implements DshConnection {
     this.setState({
       ...this.state,
       availability: error instanceof GatewayConnectionError &&
-        (error.code === "auth_required" || error.code === "auth_rejected" || error.code === "unsupported_protocol")
+        (error.code === "auth_required" || error.code === "auth_rejected" || error.code === "unsupported_protocol" || error.code === "peer_conflict")
         ? error.code : "host_unreachable",
       disconnectedAt: new Date().toISOString(),
       lastError: errorText(error),

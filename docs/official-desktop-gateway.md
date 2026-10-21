@@ -41,14 +41,18 @@ connection token is not a provider API key.
 - Authentication refusal, missing authorization, and unsupported wire framing
   fail closed. They do not trigger background reauthentication or a legacy
   protocol fallback. Network observation may reconnect, but writes are never
-  replayed internally after a lost response.
+  replayed internally after a lost response. Missing/method-incompatible RPC
+  endpoints are protocol errors, not reconnectable network outages.
 - Named Gateway RPCs map to the existing caller tools. Prompt correlation uses
   the Gateway's durable `requestId`. History pages use a cut obtained from a
   verified follow opening, not an invented cursor or unbounded polling.
 - Only mapped roots are followed. Ordinary approvals/questions are correlated to
   the owning event generation; a human reply is required and sent at most once.
   Other sessions' requests are delegated to the Host's next answerer, never
-  granted. Cancelling an observation does not cancel the DSH task.
+  granted. Settled/cancelled event identities cannot be reintroduced by duplicate
+  delivery in that generation. The identity history is bounded; exhaustion ends
+  observation instead of forgetting identities and allowing replay. Cancelling
+  an observation does not cancel the DSH task.
 - Read-only doctor deliberately does **not** authenticate or create an API Peer.
   Its Gateway result is `not_probed`, not a fabricated connection success.
 
@@ -57,12 +61,20 @@ connection token is not a provider API key.
 - Account and API-key providers are distinct. Flash supports the current
   `deepseek-flash` id as well as the verified legacy id. Pro remains a distinct
   advertised route; unsupported efforts or ambiguous providers are errors.
+- Model inspection requires an exact `modelSelection` projection. An omitted
+  projection does not prove the session inherits the global default. Only an
+  explicitly empty selection projection permits that default to be used.
 - Explicit model selection may persist as the Host's global default. Use
   `inherit` for an installation smoke test unless a model change was approved.
 - `session/modelCatalog` in the targeted release omits input modalities. Modern
   Flash Vision therefore remains unavailable without explicit capability
   evidence. Do not infer active image support from the display name or silently
-  send a visual task to a text-only route.
+  send a visual task to a text-only route. A verified same-provider legacy vision
+  route may still be used when a newer Flash lacks image evidence. The historical
+  exception belongs only to its exact official provider/model pair and never
+  overrides an explicit text-only declaration. The separate `llm/discoverModels`
+  draft API is not a substitute: the built-in providers do not register its
+  callback, and the bridge does not interrogate providers or ask for their keys.
 - Queue snapshots and subagent-mode discovery are not yet mapped and are
   reported unavailable, not empty/supported. Timed question wait claims are not
   implemented; those requests stay with the Host's human answerer. Do not
@@ -70,6 +82,33 @@ connection token is not a provider API key.
 - The bridge does not launch, stop, restart, log in to, or reconfigure Desktop.
   Actual Windows live validation and provider/vision tests require their own
   operator approval and an already running authorized Host.
+
+## Qualification and outstanding gates
+
+The Windows installed-program metadata and read-only process/listener discovery
+were checked against Desktop `0.2.1-rc.2`. Read-only package-manifest inspection
+also confirmed bundled `@deepseek-ai/dsh` and `@deepseek-ai/dsh-desktop-host`
+at `0.2.1-rc.2`; no packaged code was executed. Its bundled tools manifest declares
+Node `24.21.0` and pnpm `11.28.5`. This checks installation identity/discovery,
+not Host admission, the active account catalog, or model inference. No model
+request is required for these checks.
+
+The Gateway runtime reports a separate `testedProtocolContract`; its
+`testedAgainstDshVersion` is `null`, not the legacy `0.1.0-rc.6` qualification.
+An operator-declared version is not promoted into verified compatibility.
+
+The current hardening checkpoint passes build and 243 deterministic tests on
+Windows with Node `26.7.0`. Package dry-run contains 107 expected entries and
+no runtime credentials or maintenance state. CI includes Node 22/24/26 on
+Ubuntu/Windows/macOS; a matrix declaration alone is not a successful CI result.
+These checks use synthetic HTTP/WebSocket Hosts, never inference providers.
+
+Before calling this adapter live-qualified, separately approve installation,
+provide the supported launch credential, restart the caller, and qualify a
+disposable non-visual task and same-session follow-up. Model/vision requests
+require separate authorization. Do not consume provider tokens merely to check
+whether a route works. Native vision capability discovery, queue snapshots,
+timed-question ownership and subagent-mode discovery remain explicit gaps.
 
 ## Upstream contracts
 

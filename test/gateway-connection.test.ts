@@ -21,6 +21,7 @@ async function gatewayFixture() {
   let socketStatus = 101;
   let sendReady = true;
   let cookieVersion = "v2";
+  let rpcStatus = 200;
   const server = createServer(async (req, res) => {
     const entry = { path: req.url!, ...(req.headers.cookie === undefined ? {} : { cookie: req.headers.cookie }) };
     requests.push(entry);
@@ -34,7 +35,7 @@ async function gatewayFixture() {
     const body = JSON.parse(text);
     Object.assign(entry, { body });
     if (rpcMode === "disconnect") { req.socket.destroy(); return; }
-    res.writeHead(200, { "content-type": "application/json" });
+    res.writeHead(rpcStatus, { "content-type": "application/json" });
     res.end(JSON.stringify({ type: "server-response", rpcId: rpcMode === "mismatch" ? "wrong" : body.rpcId,
       result: rpcMode === "rejected" ? { ok: false, error: { code: "session/denied", message: token, details: { cookie } } }
         : { ok: true, value: { items: [] } } }));
@@ -72,6 +73,7 @@ async function gatewayFixture() {
     setConnectStatus: (value: number) => { connectStatus = value; },
     setLocation: (value: string) => { location = value; },
     setRpcMode: (value: typeof rpcMode) => { rpcMode = value; },
+    setRpcStatus: (value: number) => { rpcStatus = value; },
     setSocketStatus: (value: number) => { socketStatus = value; },
     setSendReady: (value: boolean) => { sendReady = value; },
     setCookieVersion: (value: string) => { cookieVersion = value; },
@@ -134,6 +136,19 @@ test("Gateway rejects cross-authority and non-mux redirects without forwarding t
     }
     assert.equal(host.requests.length, 3);
     assert.equal(host.sockets.clients.size, 0);
+  } finally { await host.close(); }
+});
+
+test("Gateway treats missing RPC endpoints as protocol errors rather than reconnectable outages", async () => {
+  const host = await gatewayFixture();
+  try {
+    for (const status of [404, 405]) {
+      const client = host.connection();
+      try {
+        host.setRpcStatus(status);
+        await assert.rejects(client.call("session/list", { _request: {} }, z.unknown()), { code: "unsupported_protocol" });
+      } finally { client.close(); }
+    }
   } finally { await host.close(); }
 });
 

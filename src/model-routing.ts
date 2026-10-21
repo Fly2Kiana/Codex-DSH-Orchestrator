@@ -34,6 +34,13 @@ export class ModelRoutingError extends Error {
   }
 }
 
+function verifiedImageInput(provider: string, model: DshSessionModels["groups"][number]["models"][number]): boolean {
+  if (model.inputModalities !== undefined) return model.inputModalities.includes("image");
+  // The historic exception is an exact verified provider/model pair, not an
+  // inference from any provider advertising the same model id.
+  return provider === "deepseek-official" && model.id === "deepseek-v4-flash-vision-exp";
+}
+
 function profileRoute(catalog: DshSessionModels, profile: ModelProfile): { provider: string; model: string } {
   if (profile === "inherit") return catalog.current;
   if (profile === "modlens-flash" || profile === "modlens-pro") return profileRoutes[profile];
@@ -46,8 +53,10 @@ function profileRoute(catalog: DshSessionModels, profile: ModelProfile): { provi
     : profile === "flash" ? ["deepseek-flash", "deepseek-v4-flash"]
     : ["deepseek-flash", "deepseek-v4-flash-vision-exp"];
   const routes = catalog.groups.filter((group) => providers.includes(group.id)).flatMap((group) => {
-    const id = ids.find((id) => group.models.some((model) => model.id === id));
-    return id === undefined ? [] : [{ provider: group.id, model: id }];
+    const candidates = ids.flatMap((id) => group.models.filter((model) => model.id === id));
+    const model = profile === "official-flash-vision"
+      ? candidates.find((model) => verifiedImageInput(group.id, model)) ?? candidates[0] : candidates[0];
+    return model === undefined ? [] : [{ provider: group.id, model: model.id }];
   });
   if (routes.length > 1) throw new ModelRoutingError("profile_ambiguous",
     `model profile ${profile} is offered by multiple official providers; select a provider in DSH first`, { profile });
@@ -80,7 +89,7 @@ export function resolveModelSelection(
   // a positive image capability from "Flash"/"Vision" in a display name.
   // Keep the exact previously verified legacy vision route for compatibility.
   if (profile === "official-flash-vision" &&
-      !(model.inputModalities?.includes("image") ?? model.id === "deepseek-v4-flash-vision-exp")) {
+      !verifiedImageInput(route.provider, model)) {
     throw new ModelRoutingError("vision_capability_unverified",
       `image input capability is not verified for ${route.provider}/${route.model}`, { profile, ...route });
   }

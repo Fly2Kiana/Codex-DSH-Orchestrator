@@ -19,7 +19,7 @@ const catalogSchema = z.object({
 });
 const projectionsSchema = z.object({ kind: z.literal("sequenced"), asOfSeq: z.number().int(),
   values: z.object({ modelSelection: z.object({ next: dshModelSelectionSchema.nullable(),
-    lastUsed: dshModelSelectionSchema.nullable() }).optional() }).passthrough() });
+    lastUsed: dshModelSelectionSchema.nullable() }) }).passthrough() });
 const recordSchema = z.object({ type: z.literal("event"), event: dshSessionEventSchema });
 const snapshotSchema = z.object({ type: z.literal("snapshot"), header: z.object({ id: z.string() }).passthrough(),
   cursor: z.number().int().min(-1), records: z.array(recordSchema), hasMore: z.boolean(),
@@ -58,6 +58,7 @@ interface Generation {
   watchers: Map<string, AbortController>;
   pumps: Set<Promise<void>>;
   clientId: string;
+  interactions: Set<string>;
 }
 interface Pending {
   sessionId: string;
@@ -104,7 +105,9 @@ export class GatewayDshClient implements DshApi {
     if (!parsed.success) throw new DshRpcError("gateway/projections-unavailable",
       "exact session projections are unavailable; the session model cannot be verified", {});
     const selection = parsed.data.values.modelSelection;
-    const current = selection?.next ?? selection?.lastUsed ?? catalog.value.default;
+    // Only an explicitly empty selection projection proves that the session
+    // inherits the deployment default. A missing projection is unknown.
+    const current = selection.next ?? selection.lastUsed ?? catalog.value.default;
     return attachDshUnaryMetadata({ current, groups: catalog.value.groups, failures: catalog.value.failures,
       routable: catalog.value.routableProviders.includes(current.provider) && catalog.value.groups.some((group) =>
         group.id === current.provider && group.models.some((model) => model.id === current.model)) },
@@ -203,14 +206,14 @@ export class GatewayDshClient implements DshApi {
           if (!opened) {
             const parsed = snapshotSchema.safeParse(value);
             if (!parsed.success || parsed.data.header.id !== sessionId) {
-              throw new DshRpcError("gateway/unsupported-snapshot", "session follow opening is invalid", {});
+              throw new GatewayConnectionError("unsupported_protocol", "session follow opening is invalid");
             }
             opened = true; clearTimeout(openingTimer);
             generation.inbox.push({ type: "session/subscribed", sessionId, lastSeq: parsed.data.cursor });
             for (const record of parsed.data.records) generation.inbox.push({ type: "session/event", sessionId, event: record.event });
           } else {
             const parsed = recordSchema.safeParse(value);
-            if (!parsed.success) throw new DshRpcError("gateway/unsupported-follow-frame", "unsupported durable session frame", {});
+            if (!parsed.success) throw new GatewayConnectionError("unsupported_protocol", "unsupported durable session frame");
             generation.inbox.push({ type: "session/event", sessionId, event: parsed.data.event });
           }
         }
@@ -226,7 +229,7 @@ export class GatewayDshClient implements DshApi {
 
   private async receiveEvent(value: unknown, generation: Generation): Promise<void> {
     const record = z.object({ type: z.string() }).passthrough().safeParse(value);
-    if (!record.success) throw new DshRpcError("gateway/invalid-event", "invalid forwarded event", {});
+    if (!record.success) throw new GatewayConnectionError("unsupported_protocol", "invalid forwarded event");
     const frame = record.data;
     if (frame.type === "cancel" && typeof frame.eventId === "string") {
       const pending = this.pending.get(frame.eventId);
@@ -239,8 +242,16 @@ export class GatewayDshClient implements DshApi {
     }
     if (frame.type !== "waterfall") return; // Do not forward unrelated account/settings notifications.
     const invocation = z.object({ event: z.string(), eventId: z.string().min(1), agentId: z.string().min(1), request: z.record(z.unknown()) }).safeParse(frame);
-    if (!invocation.success) throw new DshRpcError("gateway/invalid-interaction", "invalid forwarded interaction", {});
+    if (!invocation.success) throw new GatewayConnectionError("unsupported_protocol", "invalid forwarded interaction");
     const { event, eventId, agentId: sessionId, request } = invocation.data;
+    if (generation.interactions.has(eventId)) return;
+    // Retain delivery identities after settlement/cancellation. Forgetting an
+    // answered event would make a duplicate look like a new human approval.
+    // Bound this generation instead of evicting identities and allowing replay.
+    if (generation.interactions.size >= 1_024) {
+      throw new GatewayConnectionError("buffer_overflow", "Gateway interaction generation exceeded its bounded history");
+    }
+    generation.interactions.add(eventId);
     const wait = request.wait as { timed?: unknown } | undefined;
     if (!this.watched.has(sessionId) || !["approval/request", "user-questions/request"].includes(event) || wait?.timed === true) {
       // Delegating to the Host's next human answerer is not granting approval.
@@ -251,7 +262,7 @@ export class GatewayDshClient implements DshApi {
     const pending = event === "approval/request"
       ? dshApprovalRequestedFrameSchema.safeParse({ ...request, type: "approval/requested", sessionId, approvalId: eventId })
       : dshQuestionRequestedFrameSchema.safeParse({ questions: request.questions, type: "question/requested", sessionId });
-    if (!pending.success) throw new DshRpcError("gateway/invalid-interaction", "interaction cannot be normalized safely", {});
+    if (!pending.success) throw new GatewayConnectionError("unsupported_protocol", "interaction cannot be normalized safely");
     this.pending.set(eventId, { sessionId, type: event === "approval/request" ? "approval" : "question", generation, answering: false });
     generation.inbox.push(pending.data, eventId);
   }
@@ -284,7 +295,8 @@ export class GatewayDshClient implements DshApi {
   async *openMux(signal: AbortSignal, onOpen?: () => void): AsyncGenerator<Envelope, void> {
     if (this.generation) throw new DshRpcError("gateway/duplicate-observer", "only one bridge observer may own the API generation", {});
     const ready = await this.wire.connect(signal);
-    const generation: Generation = { controller: new AbortController(), inbox: new MuxInbox(), watchers: new Map(), pumps: new Set(), clientId: ready.clientId };
+    const generation: Generation = { controller: new AbortController(), inbox: new MuxInbox(), watchers: new Map(),
+      pumps: new Set(), clientId: ready.clientId, interactions: new Set() };
     const abort = () => { generation.controller.abort(); generation.inbox.end(); };
     signal.addEventListener("abort", abort, { once: true });
     this.generation = generation;

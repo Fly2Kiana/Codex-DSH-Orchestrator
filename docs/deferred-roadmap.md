@@ -6,6 +6,12 @@ This file records deliberately deferred work so a future development session can
 
 ## Current implemented baseline
 
+This baseline describes the legacy adapter's verified workflow. The newer
+official Desktop Gateway adapter is opt-in and is not yet live-qualified; its
+capability gaps and authorization gates are listed in
+[Official Desktop Gateway](official-desktop-gateway.md). Legacy acceptance
+must not be presented as verification of the new adapter.
+
 - One shared connect-only MCP Runtime for Codex and Claude Code.
 - Verified Windows DSH Desktop loopback discovery without port scanning or Host lifecycle ownership.
 - New delegation, known-task follow-up, bounded observation, cancellation, typed questions, and human-gated approvals.
