@@ -7,6 +7,8 @@ description: Orchestrate bounded Codex-to-DSH collaboration through the existing
 
 Use the already-loaded `dsh_agentlink` MCP tools. If they are unavailable, report that the bridge is not loaded and stop; do not create another MCP configuration or an alternate transport.
 
+The official Desktop Gateway is an opt-in adapter, not the legacy unauthenticated Host protocol. Its operator-supplied connection authorization must already be configured outside the prompt. On `auth_required`, `auth_rejected`, or `unsupported_protocol`, report that condition; do not read tokens, credential stores, private keys, browser cookies, or Desktop memory, and do not call `/connect` as a read-only diagnostic. Read reported capabilities rather than assuming the legacy queue or subagent-mode discovery is available. Timed questions are currently left to the Host's human answerer; do not simulate a timed-wait claim or answer them with follow-up.
+
 ## Preserve the role boundary
 
 - Keep Codex as the Principal Agent and Tech Lead. Codex owns requirement interpretation, planning, architecture, task decomposition, technical decisions, review, and final acceptance.
@@ -50,9 +52,11 @@ The user's explicit route choice always wins.
 
 When choosing a non-inherit profile autonomously, include a concise `selectionReason`. Pass `reasoningEffort` when the user explicitly requests it; otherwise prefer the selected model's advertised default. Never invent an effort value: the live DSH catalog must advertise it.
 
+Profiles are semantic: current official catalogs may use `deepseek-account/deepseek-flash` or an API-key route, while older catalogs use V4 ids. Never substitute Flash for an unavailable Pro, guess dated model aliases, or silently cross account/API-key provider boundaries. Current native Flash Vision requires explicit image-input capability evidence; a display name or upstream default catalog alone is not proof of the active deployment's capabilities. Missing capability evidence is a configuration boundary, not a reason for automatic ModLens fallback.
+
 ModLens receives text prompts through Agentlink. Include DSH-accessible absolute local image paths in the prompt; do not claim that the bridge uploads image bytes. If the image is not accessible to DSH, stop and explain what path or attachment is needed. When the live Host matches the verified collapsed Code Mode behavior, follow the visual protocol below; otherwise follow the Host's verified live capability.
 
-Explicit model selection calls `session.selectModel`, which on the currently supported DSH rc.6 persists the selection as DSH's global default for later sessions. Inspect and disclose the returned routing warning. A failed verification sends no prompt, but a selection write may already have changed that default.
+Explicit model selection calls `session.selectModel`, which on the supported legacy rc.6 and official Gateway contracts persists the selection as DSH's global default for later sessions. Inspect and disclose the returned routing warning. A failed verification sends no prompt, but a selection write may already have changed that default.
 
 Normally omit `agentPreset` and retain the installation-time default. Do not change DSH profiles, authentication, permissions, or plugin configuration as part of orchestration.
 
@@ -60,7 +64,7 @@ Normally omit `agentPreset` and retain the installation-time default. Do not cha
 
 For visual work, declare the policy through `visualIntent` and `complexity` instead of choosing a ModLens profile directly. A declared policy is deterministic and catalog-validated. When both visual policy fields are omitted, the bridge preserves explicit legacy `modelProfile` compatibility, including an explicitly supplied `modlens-flash`; that compatibility route is not the default visual policy.
 
-- `visualIntent="required"` with `complexity="low"` routes to the official native Flash Vision (`deepseek-official/deepseek-v4-flash-vision-exp`); no user choice is needed for the low-complexity default.
+- `visualIntent="required"` with `complexity="low"` routes to the catalog-verified official native Flash Vision profile (legacy `deepseek-official/deepseek-v4-flash-vision-exp`, or current Flash with verified image input); no user choice is needed for the low-complexity default. If the Gateway catalog omits modality evidence, stop instead of assuming vision support.
 - `visualIntent="required"` with `complexity="high"` requires an explicit user choice between `modelProfile="official-flash-vision"` and `modelProfile="modlens-pro"`. The bridge fails closed with `user_choice_required` before any session, selection, or prompt; ask the user, then retry with the chosen profile. Do not add or assume a persistent default.
 - `modelProfile="modlens-flash"` is never a first visual choice under the declared visual policy. It is the automatic terminal fallback: after the approved visual route exhausts its bounded retries with explicitly classified force-majeure failures only (timeout, unreachable Host, or HTTP 5xx), the bridge tries ModLens Flash exactly once. User cancellation, invalid input, missing models, permission or credential refusals, and configuration errors never trigger the fallback. An explicitly supplied legacy `modelProfile="modlens-flash"` remains accepted only when the visual policy fields are omitted.
 - When a delegate or followup result reports `visualRouting.fallback.used=true`, briefly tell the user at task end, using the short non-sensitive `notice` from the result. Never hide a failed fallback: if the fallback also fails, report the failure and stop.

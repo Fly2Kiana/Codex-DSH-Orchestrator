@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 export interface BridgeConfig {
   hostUrl: string;
   hostMode?: "static" | "desktop-auto";
+  hostProtocol?: "legacy" | "gateway";
+  connectTokenEnv?: string;
   homeDir: string;
   requestTimeoutMs: number;
   allowRemoteHost: boolean;
@@ -69,6 +71,14 @@ function detectTimeZone(): string | undefined {
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): BridgeConfig {
   const allowRemoteHost = booleanEnv(env.DSH_ALLOW_REMOTE_HOST);
+  const hostProtocol = env.DSH_HOST_PROTOCOL?.trim() || "legacy";
+  if (hostProtocol !== "legacy" && hostProtocol !== "gateway") {
+    throw new Error("DSH_HOST_PROTOCOL must be legacy or gateway");
+  }
+  const connectTokenEnv = env.DSH_CONNECT_TOKEN_ENV?.trim() || "DSH_CONNECT_TOKEN";
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(connectTokenEnv)) {
+    throw new Error("DSH_CONNECT_TOKEN_ENV must name an environment variable, not contain a token");
+  }
   const requestedHostMode = env.DSH_HOST_MODE?.trim() || "static";
   if (requestedHostMode !== "static" && requestedHostMode !== "desktop-auto") {
     throw new Error(`DSH_HOST_MODE must be static or desktop-auto, received ${JSON.stringify(requestedHostMode)}`);
@@ -86,6 +96,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BridgeConfig {
   return {
     hostUrl: normalizeHostUrl(env.DSH_HOST_URL ?? DEFAULT_HOST_URL, allowRemoteHost),
     hostMode: env.DSH_HOST_URL === undefined ? requestedHostMode : "static",
+    hostProtocol,
+    ...(hostProtocol === "gateway" ? { connectTokenEnv } : {}),
     homeDir: resolve(env.DSH_BRIDGE_HOME ?? resolve(dshHome, "codex-bridge")),
     requestTimeoutMs: positiveIntegerEnv(env.DSH_REQUEST_TIMEOUT_MS, DEFAULT_TIMEOUT_MS),
     allowRemoteHost,

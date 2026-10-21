@@ -24,9 +24,8 @@ import {
 } from "./codex-skill-install.js";
 import type { InstallPlan, UpsertMcpServerOperation } from "./caller-integration.js";
 import { loadConfig } from "./config.js";
-import { DshClient } from "./dsh-client.js";
+import { createDshApi } from "./dsh-api-factory.js";
 import { probeDshCliVersion, runDoctor } from "./doctor.js";
-import { createHostEndpointResolver } from "./host-endpoint.js";
 import { atomicInstallText, readConfigSnapshot } from "./setup-engine.js";
 import type { ConfigSnapshot } from "./setup-engine.js";
 
@@ -75,6 +74,7 @@ export interface SetupOptions {
   preset?: string;
   configPath?: string;
   skillPath?: string;
+  gateway?: boolean;
 }
 
 function valueAfter(argv: string[], index: number, option: string): string {
@@ -106,6 +106,7 @@ export function parseSetupArgs(argv: string[]): SetupOptions {
     else if (argument === "--skip-doctor") options.skipDoctor = true;
     else if (argument === "--no-preset") options.noPreset = true;
     else if (argument === "--desktop-auto") options.desktopAuto = true;
+    else if (argument === "--gateway") options.gateway = true;
     else if (argument === "--help" || argument === "-h") options.help = true;
     else if (argument === "--host") {
       options.host = valueAfter(argv, index, argument);
@@ -128,6 +129,9 @@ export function parseSetupArgs(argv: string[]): SetupOptions {
 
   if (options.noPreset && options.preset !== undefined) {
     throw new Error("--preset and --no-preset cannot be used together");
+  }
+  if (options.gateway && !options.desktopAuto && options.host === undefined) {
+    throw new Error("--gateway requires --desktop-auto or --host");
   }
   if (options.desktopAuto && options.host !== undefined) {
     throw new Error("--desktop-auto and --host cannot be used together");
@@ -247,6 +251,7 @@ Usage:
 Options:
   --host <url>       DSH Web Host origin (default: ${DEFAULT_HOST_URL})
   --desktop-auto     Discover the verified Windows DSH Desktop loopback listener
+  --gateway          Opt in to official authenticated Gateway (requires --desktop-auto or --host)
   --preset <name>    DSH agent preset (default: ${DEFAULT_PRESET})
   --no-preset        Follow DSH's own default preset
   --replace          Replace an existing ${CODEX_SERVER_NAME} configuration
@@ -275,7 +280,7 @@ async function main(): Promise<void> {
 
   const hostMode: SetupHostMode = options.desktopAuto ? "desktop-auto" : "static";
   validateDesktopAutoPlatform(hostMode, process.platform);
-  const dshVersion = validateDshCliSetupPrerequisite(hostMode, await probeDshCliVersion());
+  const dshVersion = validateDshCliSetupPrerequisite(options.gateway ? "desktop-auto" : hostMode, await probeDshCliVersion());
   let hostUrl: string | undefined;
   if (hostMode === "static") {
     const rawHost =
@@ -295,6 +300,7 @@ async function main(): Promise<void> {
       entryPath,
       nodePath: process.execPath,
       replace,
+      ...(options.gateway ? { hostProtocol: "gateway" as const } : {}),
       ...(dshVersion === undefined ? {} : { dshVersion }),
       ...(preset === undefined ? {} : { preset }),
     };
@@ -374,6 +380,7 @@ async function main(): Promise<void> {
 
   if (!options.skipDoctor) {
     const config = loadConfig({
+      ...(options.gateway ? { DSH_HOST_PROTOCOL: "gateway" } : {}),
       ...(hostMode === "desktop-auto" ? { DSH_HOST_MODE: hostMode } : { DSH_HOST_URL: hostUrl }),
       ...(dshVersion === undefined ? {} : { DSH_HOST_VERSION: dshVersion }),
       DSH_BRIDGE_TIME_ZONE: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -381,11 +388,13 @@ async function main(): Promise<void> {
     });
     const report = await runDoctor(
       config,
-      new DshClient(createHostEndpointResolver(config), config.requestTimeoutMs),
+      createDshApi(config),
       async () => dshVersion,
     );
     if (report.ok) console.log(`Host check: ${report.compatibility}`);
-    else if (hostMode === "desktop-auto") {
+    else if (options.gateway) {
+      console.log("Host check: intentionally not probed; /connect creates an API Peer and requires separately authorized live validation");
+    } else if (hostMode === "desktop-auto") {
       console.log("Host check: not connected; start DSH Desktop yourself and rerun `npm run doctor`");
     } else console.log(`Host check: not connected; start it with ${report.startCommand}`);
   }

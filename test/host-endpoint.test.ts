@@ -48,3 +48,10 @@ test("desktop-auto delegates each fresh resolution to verified Desktop discovery
     source: "windows-process-listener",
   });
 });
+
+test("Gateway desktop-auto uses official candidate discovery and never probes the legacy Host", async () => {
+  const resolver = createHostEndpointResolver(loadConfig({ DSH_HOST_MODE: "desktop-auto", DSH_HOST_PROTOCOL: "gateway" }),
+    async () => { assert.fail("legacy discovery must not run"); },
+    async () => ({ baseUrl: "http://127.0.0.1:24001", source: "windows-process-listener", desktopPids: [101], candidateCount: 1, protocolVerified: false }));
+  assert.deepEqual(await resolver.resolve(), { baseUrl: "http://127.0.0.1:24001", source: "windows-process-listener" });
+});

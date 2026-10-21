@@ -446,6 +446,9 @@ export type DshSubagentAddress = {
 };
 
 export interface DshApi {
+  protocolCapabilities?: { queueSnapshot: boolean; forceFreshHistoryCut?: boolean; timedQuestions?: boolean; subagentModeDiscovery?: boolean };
+  trackSessions?(sessionIds: readonly string[]): void;
+  close?(): void;
   hostDescribe(signal?: AbortSignal): Promise<DshUnaryResult<DshHostDescription>>;
   sessionList(signal?: AbortSignal): Promise<DshUnaryResult<z.infer<typeof dshSessionListValueSchema>>>;
   sessionCreate(

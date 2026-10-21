@@ -6,10 +6,10 @@ import { pathToFileURL } from "node:url";
 
 import type { BridgeConfig } from "./config.js";
 import { loadConfig } from "./config.js";
-import { DshClient, getHostEndpointSnapshot } from "./dsh-client.js";
+import { getHostEndpointSnapshot } from "./dsh-client.js";
 import type { DshApi } from "./dsh-types.js";
-import { createHostEndpointResolver } from "./host-endpoint.js";
 import { collectLockDiagnostics } from "./lock-doctor.js";
+import { createDshApi } from "./dsh-api-factory.js";
 
 const execFileAsync = promisify(execFile);
 const TESTED_CLI_VERSION = "0.1.0-rc.6";
@@ -74,6 +74,13 @@ export async function runDoctor(
 ) {
   const cliVersion = await cliVersionProbe();
   const lockDiagnostics = await collectLockDiagnostics(config.homeDir);
+  if (config.hostProtocol === "gateway") {
+    return { ok: false, connectOnly: true, availability: "not_probed", compatibility: "unknown",
+      endpoint: getHostEndpointSnapshot(api, { mode: config.hostMode, configuredBaseUrl: config.hostUrl }),
+      checkedAt: new Date().toISOString(), dshCliVersion: cliVersion ?? null,
+      note: "Read-only doctor does not call /connect or create an API Peer. Authenticated live validation requires explicit operator authorization.",
+      lockDiagnostics };
+  }
   try {
     const description = await api.hostDescribe();
     const sessions = await api.sessionList();
@@ -156,7 +163,7 @@ async function main() {
   const config = loadConfig();
   const report = await runDoctor(
     config,
-    new DshClient(createHostEndpointResolver(config), config.requestTimeoutMs),
+    createDshApi(config),
   );
   const output = JSON.stringify(report, null, 2);
   if (report.ok) console.log(output);

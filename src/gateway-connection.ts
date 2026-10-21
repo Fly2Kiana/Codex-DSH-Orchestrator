@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import WebSocket from "ws";
 import { z } from "zod";
 
-import { DshTransportError, type HostEndpointResolver } from "./dsh-client.js";
+import { DshTransportError, type HostEndpointResolver, type HostEndpointSnapshot } from "./dsh-client.js";
 
 export type GatewayFailureCode =
   | "auth_required" | "auth_rejected" | "unsupported_protocol"
@@ -149,13 +149,18 @@ export class GatewayConnection {
   #peer: Peer | undefined;
   #connecting: Promise<Peer> | undefined;
   #disposed = false;
+  #endpointSnapshot: HostEndpointSnapshot;
 
   constructor(options: GatewayConnectionOptions) {
     this.#endpoint = options.endpoint;
     this.#getToken = options.getConnectToken;
     this.#timeoutMs = options.timeoutMs;
     this.#fetch = options.fetchImpl ?? globalThis.fetch;
+    this.#endpointSnapshot = { mode: options.endpoint.mode, resolutionEpoch: 0,
+      ...(options.endpoint.configuredBaseUrl === undefined ? {} : { configuredBaseUrl: originUrl(options.endpoint.configuredBaseUrl).origin }) };
   }
+
+  endpointSnapshot(): HostEndpointSnapshot { return { ...this.#endpointSnapshot }; }
 
   async connect(signal?: AbortSignal): Promise<GatewayReady> {
     return (await this.#ensurePeer(signal)).ready!;
@@ -285,6 +290,8 @@ export class GatewayConnection {
       if (!token?.trim()) throw failure("auth_required");
       const resolved = await this.#endpoint.resolve();
       const origin = originUrl(resolved.baseUrl);
+      this.#endpointSnapshot = { ...this.#endpointSnapshot, resolvedBaseUrl: origin.origin, source: resolved.source,
+        resolutionEpoch: this.#endpointSnapshot.resolutionEpoch + 1 };
       if (this.#disposed || signal?.aborted) throw failure("aborted");
       peer = { origin, cookie: "", controller: new AbortController(), streams: new Map(),
         bufferedBytes: 0, eventStreamId: randomUUID(), eventConsumer: false };

@@ -35,6 +35,7 @@ export interface UpsertMcpServerOperation {
   command: string;
   args: readonly string[];
   env: Readonly<Record<string, string>>;
+  envVars?: readonly string[];
   humanApproval: {
     toolName: string;
     mode: "human-prompt";

@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from "node:util";
 
 import type { BridgeConfig } from "./config.js";
 import { DshRpcError, DshTransportError, getHostEndpointSnapshot } from "./dsh-client.js";
+import { GatewayConnectionError } from "./gateway-connection.js";
 import type { EventLedger, LedgerSnapshot } from "./event-ledger.js";
 import type {
   DshApi,
@@ -20,7 +21,8 @@ import type { TaskRecord, TaskStore } from "./task-store.js";
 
 export const TESTED_DSH_VERSION = "0.1.0-rc.6";
 
-export type HostAvailability = "connecting" | "connected" | "host_unreachable" | "stopped";
+export type HostAvailability = "connecting" | "connected" | "host_unreachable" | "stopped"
+  | "auth_required" | "auth_rejected" | "unsupported_protocol";
 
 export interface HostConnectionSnapshot {
   availability: HostAvailability;
@@ -46,6 +48,8 @@ export interface HostConnectionSnapshot {
     typedRespond: boolean;
     pendingReplayReconciliation: "stable-rpcid-baseline-idle";
     subagentHistory: boolean | "not-probed";
+    timedQuestions?: boolean;
+    subagentModeDiscovery?: boolean;
   };
 }
 
@@ -370,12 +374,23 @@ export class DshConnectionManager implements DshConnection {
       this.queues.delete(sessionId);
     }
     await this.resolveSubagentAddresses();
+    this.api.trackSessions?.([...this.lineage.values()].flatMap((rows) => rows
+      .filter((row) => row.origin === "root").map((row) => row.sessionId)));
     if (lineageSignature(this.lineage) !== before) this.bumpRevision();
   }
 
   async reconcileTask(taskId: string): Promise<void> {
     const before = await this.ledger.snapshot(taskId);
     const rows = this.lineage.get(taskId) ?? [];
+    if (this.api.protocolCapabilities?.forceFreshHistoryCut) {
+      // Gateway follow snapshots name a cut, not a permanent resume frontier.
+      // An explicit status reconciliation must obtain a fresh cut before an
+      // idle list row can be interpreted as interruption of an observed turn.
+      for (const row of rows) {
+        const runtime = this.sessions.get(row.sessionId);
+        if (runtime) delete runtime.subscribedLastSeq;
+      }
+    }
     await Promise.all(rows.map((row) => this.reconcileSession(row.sessionId, this.controller?.signal)));
     const after = await this.ledger.snapshot(taskId);
     if (after.cursor > before.cursor) this.bumpRevision(taskId);
@@ -508,6 +523,10 @@ export class DshConnectionManager implements DshConnection {
       } catch (error) {
         if (signal.aborted) break;
         await this.onDisconnected(error);
+        if (error instanceof GatewayConnectionError &&
+            ["auth_required", "auth_rejected", "unsupported_protocol", "peer_conflict"].includes(error.code)) {
+          return; // Explicit operator action, not background credential/token retry.
+        }
         await sleep(this.reconnectDelayMs, signal);
         if (!signal.aborted) this.setState({ ...this.state, availability: "connecting" });
       }
@@ -569,7 +588,9 @@ export class DshConnectionManager implements DshConnection {
         ...this.state.capabilities,
         unaryRpc: true,
         eventsMuxWebSocket: true,
-        queueSnapshot: true,
+        queueSnapshot: this.api.protocolCapabilities?.queueSnapshot ?? true,
+        ...(this.api.protocolCapabilities?.timedQuestions === undefined ? {} : { timedQuestions: this.api.protocolCapabilities.timedQuestions }),
+        ...(this.api.protocolCapabilities?.subagentModeDiscovery === undefined ? {} : { subagentModeDiscovery: this.api.protocolCapabilities.subagentModeDiscovery }),
       },
     });
     const fallback = setTimeout(() => {
@@ -591,7 +612,9 @@ export class DshConnectionManager implements DshConnection {
     }
     this.setState({
       ...this.state,
-      availability: "host_unreachable",
+      availability: error instanceof GatewayConnectionError &&
+        (error.code === "auth_required" || error.code === "auth_rejected" || error.code === "unsupported_protocol")
+        ? error.code : "host_unreachable",
       disconnectedAt: new Date().toISOString(),
       lastError: errorText(error),
     });

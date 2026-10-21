@@ -24,6 +24,7 @@ interface RenderMcpConfigBaseOptions {
   nodePath: string;
   dshVersion?: string;
   preset?: string;
+  hostProtocol?: "legacy" | "gateway";
 }
 
 export type RenderMcpConfigOptions = RenderMcpConfigBaseOptions &
@@ -53,6 +54,7 @@ export function renderCodexOperation(operation: UpsertMcpServerOperation): strin
     `[mcp_servers.${operation.serverName}]`,
     `command = ${tomlString(operation.command)}`,
     `args = [${operation.args.map((argument) => tomlString(argument)).join(", ")}]`,
+    ...(operation.envVars === undefined ? [] : [`env_vars = [${operation.envVars.map(tomlString).join(", ")}]`]),
     "",
     `[mcp_servers.${operation.serverName}.env]`,
     ...env,
@@ -196,6 +198,7 @@ export function defaultCodexConfigPath(env: NodeJS.ProcessEnv = process.env): st
 
 function buildEnv(options: RenderMcpConfigOptions): Record<string, string> {
   return {
+    ...(options.hostProtocol === "gateway" ? { DSH_HOST_PROTOCOL: "gateway" } : {}),
     ...(options.hostMode === "desktop-auto"
       ? { DSH_HOST_MODE: "desktop-auto" }
       : { DSH_HOST_URL: options.hostUrl }),
@@ -212,6 +215,7 @@ function createCodexOperation(options: RenderMcpConfigOptions & { replace: boole
     command: options.nodePath,
     args: [options.entryPath],
     env: buildEnv(options),
+    ...(options.hostProtocol === "gateway" ? { envVars: ["DSH_CONNECT_TOKEN"] } : {}),
     humanApproval: {
       toolName: "dsh_resolve_approval",
       mode: "human-prompt",
