@@ -75,9 +75,17 @@ connection token is not a provider API key.
   overrides an explicit text-only declaration. The separate `llm/discoverModels`
   draft API is not a substitute: the built-in providers do not register its
   callback, and the bridge does not interrogate providers or ask for their keys.
-- Queue snapshots and subagent-mode discovery are not yet mapped and are
-  reported unavailable, not empty/supported. Timed question wait claims are not
-  implemented; those requests stay with the Host's human answerer. Do not
+- Queue inspection refreshes the mapped root's pending inbox from its exact
+  follow-opening projection during explicit status/write preflight. It does not
+  subscribe to the Host-wide control stream or inspect unrelated inboxes.
+  `next-turn` maps to queued work and `next-step` to steering. Missing, malformed,
+  duplicate-id, mismatched-cut or failed snapshots invalidate the old view; they
+  never prove the queue empty. Cancellation removes only observed item ids and
+  remains non-atomic; an already-claimed item is reported separately. Queue
+  bodies remain in memory, not in the persistent coordination ledger.
+- Subagent-mode discovery is not yet mapped and is reported unavailable, not
+  empty/supported. Timed question wait claims are not implemented; those
+  requests stay with the Host's human answerer. Do not
   auto-approve, synthesize unsupported capabilities, or change DSH permissions.
 - The bridge does not launch, stop, restart, log in to, or reconfigure Desktop.
   Actual Windows live validation and provider/vision tests require their own
@@ -97,7 +105,7 @@ The Gateway runtime reports a separate `testedProtocolContract`; its
 `testedAgainstDshVersion` is `null`, not the legacy `0.1.0-rc.6` qualification.
 An operator-declared version is not promoted into verified compatibility.
 
-The current hardening checkpoint passes build and 243 deterministic tests on
+The current queue-compatibility checkpoint passes build and 245 deterministic tests on
 Windows with Node `26.7.0`. Package dry-run contains 107 expected entries and
 no runtime credentials or maintenance state. CI includes Node 22/24/26 on
 Ubuntu/Windows/macOS; a matrix declaration alone is not a successful CI result.
@@ -107,8 +115,10 @@ Before calling this adapter live-qualified, separately approve installation,
 provide the supported launch credential, restart the caller, and qualify a
 disposable non-visual task and same-session follow-up. Model/vision requests
 require separate authorization. Do not consume provider tokens merely to check
-whether a route works. Native vision capability discovery, queue snapshots,
-timed-question ownership and subagent-mode discovery remain explicit gaps.
+whether a route works. Native vision capability discovery, timed-question
+ownership and subagent-mode discovery remain explicit gaps. Queue snapshots
+refresh on explicit observation/preflight; an independent live queue-change
+notification stream is not implemented.
 
 ## Upstream contracts
 

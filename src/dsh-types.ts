@@ -146,7 +146,11 @@ export const dshSessionHistorySchema = z
   })
   .passthrough();
 
-export type DshSessionHistory = z.infer<typeof dshSessionHistorySchema>;
+export type DshSessionHistory = z.infer<typeof dshSessionHistorySchema> & {
+  /** Adapter-normalized exact pending inbox; null means unknown, not empty.
+   * Only consumed from an adapter advertising queueSnapshot capability. */
+  queueSnapshot?: DshQueuedInboxItem[] | null;
+};
 
 export const dshSessionListValueSchema = z
   .object({ items: z.array(dshSessionSummarySchema) })

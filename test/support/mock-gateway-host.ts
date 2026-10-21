@@ -9,6 +9,7 @@ export async function startMockGatewayHost(options: { socketStatus?: number; rpc
   let connectCount = 0;
   const requests: Array<{ method: string; rpcId: string; args: Record<string, any> }> = [];
   const handlers = new Map<string, (args: Record<string, any>) => unknown>();
+  const errors = new Map<string, { code: string; message: string; details: unknown }>();
   const streams: Array<{ socket: WebSocket; streamId: string; endpoint: string; args: Record<string, any> }> = [];
   const server = createServer(async (req, res) => {
     if (req.url === "/connect?token=fixture&interactions=answer") {
@@ -22,7 +23,7 @@ export async function startMockGatewayHost(options: { socketStatus?: number; rpc
     const body = JSON.parse(text);
     requests.push({ method: body.method, rpcId: body.rpcId, args: body.payload.args });
     const handler = handlers.get(body.method);
-    const result = handler === undefined
+    const result = errors.has(body.method) ? { ok: false, error: errors.get(body.method) } : handler === undefined
       ? { ok: false, error: { code: "test/unexpected-endpoint", message: "unexpected endpoint", details: {} } }
       : { ok: true, value: handler(body.payload.args) };
     res.writeHead(options.rpcStatus ?? 200, { "content-type": "application/json" }).end(JSON.stringify({ type: "server-response", rpcId: body.rpcId, result }));
@@ -58,6 +59,7 @@ export async function startMockGatewayHost(options: { socketStatus?: number; rpc
   cookie = `dsh-auth-${createHash("sha256").update(new URL(baseUrl).host).digest("base64url")}=v2.fixture.signature`;
   return { baseUrl, requests, streams, send, get connectCount() { return connectCount; },
     handle: (method: string, handler: (args: Record<string, any>) => unknown) => { handlers.set(method, handler); },
+    reject: (method: string, error: { code: string; message: string; details: unknown }) => { errors.set(method, error); },
     onStream: (handler: NonNullable<typeof streamHandler>) => { streamHandler = handler; },
     async close() {
       for (const socket of sockets.clients) socket.terminate();

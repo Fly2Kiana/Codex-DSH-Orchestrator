@@ -170,6 +170,56 @@ test("official history uses the exact follow cut for paging and does not request
   } finally { wire.close(); await host.close(); }
 });
 
+test("official history exposes only an exact typed pending inbox snapshot, never inferring missing queues as empty", async () => {
+  const host = await startMockGatewayHost();
+  const wire = new GatewayConnection({ endpoint: { mode: "static", resolve: async () => ({ baseUrl: host.baseUrl, source: "configured" }) },
+    getConnectToken: () => "fixture", timeoutMs: 1_000 });
+  const api = new GatewayDshClient(wire, 1_000);
+  const queued = { id: "queued-one", role: "user", content: [{ type: "text", text: "later" }] };
+  const steering = { id: "steering-one", role: "user", content: [{ type: "text", text: "next step" }] };
+  let values: Record<string, unknown> = { inbox: { "next-turn": [queued], "next-step": [steering] } };
+  let asOfSeq = 0;
+  host.onStream((stream) => host.send(stream, { type: "snapshot", header: { id: "sample" }, cursor: 0,
+    records: [], hasMore: false, projections: { asOfSeq, values } }));
+  host.handle("session/page", () => ({ records: [], hasMore: false }));
+  try {
+    assert.deepEqual((await api.sessionHistory("sample")).queueSnapshot, [
+      { id: "queued-one", placement: "queued", message: queued },
+      { id: "steering-one", placement: "steering", message: steering },
+    ]);
+    values = {};
+    assert.equal((await api.sessionHistory("sample")).queueSnapshot, null);
+    values = { inbox: { "next-turn": [], "next-step": [] } };
+    assert.deepEqual((await api.sessionHistory("sample")).queueSnapshot, []);
+    asOfSeq = -1;
+    assert.equal((await api.sessionHistory("sample")).queueSnapshot, null);
+    asOfSeq = 0;
+    values = { inbox: { "next-turn": [queued], "next-step": [queued] } };
+    assert.equal((await api.sessionHistory("sample")).queueSnapshot, null);
+    values = { inbox: { "next-turn": "invalid", "next-step": [] } };
+    assert.equal((await api.sessionHistory("sample")).queueSnapshot, null);
+    assert.equal(host.streams.some((stream) => stream.endpoint === "session/control"), false);
+  } finally { wire.close(); await host.close(); }
+});
+
+test("official queue removal retains the already-claimed outcome without exposing raw Host errors", async () => {
+  const host = await startMockGatewayHost();
+  const wire = new GatewayConnection({ endpoint: { mode: "static", resolve: async () => ({ baseUrl: host.baseUrl, source: "configured" }) },
+    getConnectToken: () => "fixture", timeoutMs: 1_000 });
+  const api = new GatewayDshClient(wire, 1_000);
+  host.reject("session/updateQueue", { code: "session/queue-item-not-found",
+    message: "synthetic-private-message", details: { secret: "synthetic-private-detail" } });
+  try {
+    await assert.rejects(api.sessionUpdateQueue("sample", "already-claimed", { kind: "remove" }), (error: unknown) => {
+      assert.equal((error as { code: string }).code, "queue-item-not-found");
+      assert.equal(String(error).includes("synthetic-private-message"), false);
+      assert.equal(JSON.stringify(error).includes("synthetic-private-detail"), false);
+      return true;
+    });
+    assert.equal(host.requests.filter((request) => request.method === "session/updateQueue").length, 1);
+  } finally { wire.close(); await host.close(); }
+});
+
 test("settled and cancelled official interactions cannot be reintroduced within the same generation", async () => {
   const host = await startMockGatewayHost();
   const wire = new GatewayConnection({ endpoint: { mode: "static", resolve: async () => ({ baseUrl: host.baseUrl, source: "configured" }) },
@@ -242,7 +292,7 @@ test("official question events remain typed, cancelled requests cannot be replay
   } finally { controller.abort(); await mux.return(); wire.close(); await host.close(); }
 });
 
-test("official mock Host completes the bridge delegate/result/follow-up loop without selecting a model", { timeout: 10_000 }, async () => {
+test("official mock Host completes delegate/follow-up/queue cancellation without selecting a model", { timeout: 10_000 }, async () => {
   const host = await startMockGatewayHost();
   const home = await mkdtemp(join(tmpdir(), "gateway-bridge-test-"));
   const wire = new GatewayConnection({ endpoint: { mode: "static", configuredBaseUrl: host.baseUrl,
@@ -255,6 +305,7 @@ test("official mock Host completes the bridge delegate/result/follow-up loop wit
   const service = new BridgeService(config, api, tasks, connection, ledger);
   let created = false;
   let turns = 0;
+  let inbox: Record<string, unknown> | undefined;
   const events: Array<{ type: string; seq: number; time: number; data: unknown }> = [];
   host.handle("session/list", () => ({ items: created ? [{ sessionId: "sample", updatedAt: turns,
     running: false, blank: turns === 0, cwd: home, agentAvailable: true }] : [] }));
@@ -264,10 +315,18 @@ test("official mock Host completes the bridge delegate/result/follow-up loop wit
   host.handle("session/projections", () => ({ kind: "sequenced", asOfSeq: events.length - 1,
     values: { modelSelection: { next: null, lastUsed: null } } }));
   host.handle("session/rename", () => ({ title: "Fixture", seq: 0 }));
+  host.handle("session/updateQueue", ({ request }) => {
+    assert.equal(request.sessionId, "sample");
+    assert.equal(request.itemId, "pending-one");
+    assert.deepEqual(request.action, { kind: "remove" });
+    inbox = { "next-turn": [], "next-step": [] };
+    return { accepted: true };
+  });
   host.handle("session/page", ({ request }) => ({ records: events.filter((event) => event.seq <= request.throughSeq &&
     (request.beforeSeq === undefined || event.seq < request.beforeSeq)).map((event) => ({ type: "event", event })), hasMore: false }));
   host.onStream((stream) => host.send(stream, { type: "snapshot", header: { id: "sample" }, cursor: events.length - 1,
-    records: events.map((event) => ({ type: "event", event })), hasMore: false, projections: { asOfSeq: events.length - 1, values: {} } }));
+    records: events.map((event) => ({ type: "event", event })), hasMore: false,
+    projections: { asOfSeq: events.length - 1, values: inbox === undefined ? {} : { inbox } } }));
   host.handle("session/prompt", () => {
     turns++;
     const turn = [
@@ -307,7 +366,35 @@ test("official mock Host completes the bridge delegate/result/follow-up loop wit
     assert.equal(host.requests.filter((request) => request.method === "session/create").length, 1);
     assert.equal(host.requests.filter((request) => request.method === "session/selectModel").length, 0);
     assert.ok(host.requests.filter((request) => request.method === "session/prompt").every((request) => request.args.request.sessionId === "sample"));
-    assert.equal(connection.snapshot().capabilities.queueSnapshot, false);
+    assert.equal(connection.snapshot().capabilities.queueSnapshot, true);
+    assert.equal(connection.queueForSession("sample").known, false);
+    inbox = { "next-turn": [{ id: "pending-one", role: "user", content: [
+      { type: "text", text: "SYNTHETIC_QUEUE_BODY_NOT_FOR_LEDGER" },
+    ] }], "next-step": [] };
+    const cancelled = await service.cancel(task.taskId, "queue");
+    assert.deepEqual("removed" in cancelled ? cancelled.removed : undefined, ["pending-one"]);
+    await service.status(task.taskId);
+    assert.equal(connection.queueForSession("sample").known, true);
+    assert.deepEqual(connection.queueForSession("sample").items, []);
+    assert.equal(JSON.stringify(await ledger.tail(task.taskId)).includes("SYNTHETIC_QUEUE_BODY_NOT_FOR_LEDGER"), false);
+    inbox = { "next-turn": [{ id: "pending-one", role: "user", content: [] }], "next-step": [] };
+    host.reject("session/updateQueue", { code: "session/queue-item-not-found", message: "already claimed", details: {} });
+    const raced = await service.cancel(task.taskId, "queue");
+    assert.deepEqual("alreadyClaimed" in raced ? raced.alreadyClaimed : undefined, ["pending-one"]);
+    assert.deepEqual("failed" in raced ? raced.failed : undefined, []);
+    inbox = undefined;
+    await service.status(task.taskId);
+    assert.equal(connection.queueForSession("sample").known, false);
+    await assert.rejects(service.cancel(task.taskId, "queue"), { code: "queue_snapshot_unavailable" });
+    assert.equal(host.requests.filter((request) => request.method === "session/updateQueue").length, 2);
+    inbox = { "next-turn": [{ id: "pending-one", role: "user", content: [] }], "next-step": [] };
+    await service.status(task.taskId);
+    assert.equal(connection.queueForSession("sample").known, true);
+    host.onStream((stream) => host.send(stream, { type: "snapshot", header: { id: "wrong-session" }, cursor: events.length - 1,
+      records: [], hasMore: false, projections: { asOfSeq: events.length - 1, values: { inbox } } }));
+    await assert.rejects(service.cancel(task.taskId, "queue"), { code: "queue_snapshot_unavailable" });
+    assert.equal(connection.queueForSession("sample").known, false);
+    assert.equal(host.requests.filter((request) => request.method === "session/updateQueue").length, 2);
     await service.releaseWorkspace(task.taskId);
   } finally {
     await connection.stop(); wire.close(); await host.close(); await rm(home, { recursive: true, force: true });

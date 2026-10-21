@@ -25,6 +25,19 @@ const snapshotSchema = z.object({ type: z.literal("snapshot"), header: z.object(
   cursor: z.number().int().min(-1), records: z.array(recordSchema), hasMore: z.boolean(),
   projections: z.object({ asOfSeq: z.number().int(), values: z.record(z.unknown()) }) });
 const pageSchema = z.object({ records: z.array(recordSchema), hasMore: z.boolean() });
+const inboxMessageSchema = z.object({ id: z.string().min(1), role: z.string(), content: z.array(z.unknown()) }).passthrough();
+const inboxSchema = z.object({ "next-turn": z.array(inboxMessageSchema), "next-step": z.array(inboxMessageSchema) }).strict();
+
+function pendingInbox(snapshot: z.infer<typeof snapshotSchema>) {
+  if (snapshot.projections.asOfSeq !== snapshot.cursor) return null;
+  const inbox = inboxSchema.safeParse(snapshot.projections.values.inbox);
+  if (!inbox.success) return null;
+  const items = [
+    ...inbox.data["next-turn"].map((message) => ({ id: message.id, placement: "queued" as const, message })),
+    ...inbox.data["next-step"].map((message) => ({ id: message.id, placement: "steering" as const, message })),
+  ];
+  return new Set(items.map((item) => item.id)).size === items.length ? items : null;
+}
 type Envelope = DshServerRequest<DshMuxFrame>;
 class MuxInbox {
   items: Envelope[] = [];
@@ -69,7 +82,7 @@ interface Pending {
 
 /** Official Gateway business mapping; the legacy DshClient remains separate. */
 export class GatewayDshClient implements DshApi {
-  readonly protocolCapabilities = { queueSnapshot: false, forceFreshHistoryCut: true,
+  readonly protocolCapabilities = { queueSnapshot: true, forceFreshHistoryCut: true,
     timedQuestions: false, subagentModeDiscovery: false } as const;
   private watched = new Set<string>();
   private generation: Generation | undefined;
@@ -78,7 +91,13 @@ export class GatewayDshClient implements DshApi {
 
   private async rpc<T extends object>(method: string, args: Record<string, unknown>, schema: z.ZodType<T>, signal?: AbortSignal)
     : Promise<DshUnaryResult<T>> {
-    const result = await this.wire.call(method, args, schema, signal);
+    const result = await this.wire.call(method, args, schema, signal).catch((error: unknown) => {
+      if (method === "session/updateQueue" && error instanceof GatewayConnectionError &&
+          error.rpcCode === "session/queue-item-not-found") {
+        throw new DshRpcError("queue-item-not-found", "queued item is no longer pending", {});
+      }
+      throw error;
+    });
     return attachDshUnaryMetadata(result.value, { issuedRpcId: result.rpcId, method: method.replace("/", ".") });
   }
 
@@ -157,7 +176,7 @@ export class GatewayDshClient implements DshApi {
       throw new DshRpcError("gateway/invalid-history-cut", "the Host history page exceeded the verified cut", {});
     }
     return attachDshUnaryMetadata({ events: page.value.records.map((record) => ({ event: record.event })),
-      hasMore: page.value.hasMore, projections: opening.projections.values },
+      hasMore: page.value.hasMore, projections: opening.projections.values, queueSnapshot: pendingInbox(opening) },
     { issuedRpcId: page.rpcId, method: "session.history" });
   }
 

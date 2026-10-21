@@ -10,7 +10,8 @@ export type GatewayFailureCode =
 
 /** Deliberately contains no URL, raw response, credential, or underlying cause. */
 export class GatewayConnectionError extends DshTransportError {
-  constructor(readonly code: GatewayFailureCode, message: string) {
+  constructor(readonly code: GatewayFailureCode, message: string,
+    readonly rpcCode?: "session/queue-item-not-found") {
     super(message);
     this.name = "GatewayConnectionError";
   }
@@ -231,7 +232,14 @@ export class GatewayConnection {
       if (!response.ok) throw failure("transport_failure");
       const decoded = responseSchema.safeParse(await this.#json(response));
       if (!decoded.success || decoded.data.rpcId !== rpcId) throw failure("unsupported_protocol");
-      if (!decoded.data.result.ok) throw failure("rpc_rejected");
+      if (!decoded.data.result.ok) {
+        // Preserve only this audited business outcome. Never retain a raw
+        // error message/details or an arbitrary Host-provided code.
+        const known = z.object({ code: z.literal("session/queue-item-not-found") }).safeParse(decoded.data.result.error);
+        if (known.success) throw new GatewayConnectionError("rpc_rejected",
+          "Official Harness reports that the queue item is no longer pending", known.data.code);
+        throw failure("rpc_rejected");
+      }
       const result = schema.safeParse(decoded.data.result.value);
       if (!result.success) throw failure("unsupported_protocol");
       return { value: result.data, rpcId };

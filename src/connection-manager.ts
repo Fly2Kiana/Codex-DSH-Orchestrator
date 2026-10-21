@@ -758,6 +758,10 @@ export class DshConnectionManager implements DshConnection {
       try {
         recovered = await this.readMissingHistory(runtime, highWatermark, signal);
       } catch (error) {
+        if (runtime.lineage.origin === "root" && this.api.protocolCapabilities?.forceFreshHistoryCut &&
+            this.api.protocolCapabilities.queueSnapshot && this.invalidateQueueView(sessionId)) {
+          this.bumpRevision(runtime.taskId);
+        }
         if (error instanceof DshTransportError || signal?.aborted === true) throw error;
         if (runtime.lineage.origin === "root" && error instanceof DshRpcError && error.code === "session-not-found") {
           await this.drainBuffer(runtime);
@@ -836,6 +840,16 @@ export class DshConnectionManager implements DshConnection {
         runtime.lineage.origin === "root"
           ? await this.api.sessionHistory(runtime.lineage.sessionId, options, signal)
           : await this.readSubagentHistory(runtime, options, signal);
+      if (runtime.lineage.origin === "root" && this.api.protocolCapabilities?.queueSnapshot &&
+          history.queueSnapshot !== undefined) {
+        let queueChanged: boolean;
+        if (history.queueSnapshot === null) {
+          queueChanged = this.invalidateQueueView(runtime.lineage.sessionId);
+        } else {
+          queueChanged = this.updateQueueView(runtime.lineage.sessionId, history.queueSnapshot);
+        }
+        if (queueChanged) this.bumpRevision(runtime.taskId);
+      }
       for (const entry of history.events) {
         if (entry.event.seq > highWatermark) recovered.push(entry);
       }
@@ -888,6 +902,13 @@ export class DshConnectionManager implements DshConnection {
       updatedAt: new Date().toISOString(),
       items: structuredClone(items),
     });
+    return changed;
+  }
+
+  private invalidateQueueView(sessionId: string): boolean {
+    const changed = this.queues.get(sessionId)?.known === true;
+    this.queues.set(sessionId, { known: false, stale: false,
+      connectionEpoch: this.state.connectionEpoch, items: [] });
     return changed;
   }
 
