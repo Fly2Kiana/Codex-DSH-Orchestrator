@@ -4,8 +4,40 @@ import { test } from "node:test";
 import {
   DesktopHostDiscoveryError,
   discoverDesktopHostEndpoint,
+  discoverOfficialDesktopHostEndpoint,
   parseWindowsNetstatListeners,
 } from "../src/desktop-host-discovery.js";
+
+test("official Desktop discovery selects only its exact executable and owned loopback listener without authentication", async () => {
+  const endpoint = await discoverOfficialDesktopHostEndpoint({
+    platform: "win32",
+    listProcesses: async () => [
+      { pid: 101, name: "DeepSeek Harness", executablePath: "C:\\Apps\\DeepSeek Harness.exe" },
+      { pid: 102, name: "DSH Desktop", executablePath: "C:\\Apps\\DSH Desktop.exe" },
+      { pid: 103, name: "DeepSeek Harness", executablePath: "C:\\Apps\\unrelated.exe" },
+    ],
+    listListeners: async () => [
+      { pid: 101, address: "127.0.0.1", port: 24001 },
+      { pid: 101, address: "0.0.0.0", port: 24002 },
+      { pid: 102, address: "127.0.0.1", port: 24003 },
+      { pid: 103, address: "127.0.0.1", port: 24004 },
+    ],
+  });
+  assert.deepEqual(endpoint, { baseUrl: "http://127.0.0.1:24001", source: "windows-process-listener",
+    desktopPids: [101], candidateCount: 1, protocolVerified: false });
+});
+
+test("official Desktop discovery refuses missing, ambiguous and unsupported candidates before connecting", async () => {
+  const process = { pid: 101, name: "DeepSeek Harness", executablePath: "C:\\Apps\\DeepSeek Harness.exe" };
+  const dependencies = { platform: "win32" as const, listProcesses: async () => [process],
+    listListeners: async () => [{ pid: 101, address: "127.0.0.1", port: 24001 }] };
+  await assert.rejects(discoverOfficialDesktopHostEndpoint({ ...dependencies, platform: "darwin" }), { code: "unsupported_platform" });
+  await assert.rejects(discoverOfficialDesktopHostEndpoint({ ...dependencies, listProcesses: async () => [] }), { code: "desktop_not_running" });
+  await assert.rejects(discoverOfficialDesktopHostEndpoint({ ...dependencies, listListeners: async () => [] }), { code: "desktop_host_not_found" });
+  await assert.rejects(discoverOfficialDesktopHostEndpoint({ ...dependencies, listListeners: async () => [
+    { pid: 101, address: "127.0.0.1", port: 24001 }, { pid: 101, address: "::1", port: 24002 },
+  ] }), { code: "ambiguous_desktop_host" });
+});
 
 test("desktop discovery probes only loopback listeners owned by exact DSH Desktop processes", async () => {
   const probed: string[] = [];

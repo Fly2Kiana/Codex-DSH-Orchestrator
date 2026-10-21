@@ -48,6 +48,7 @@ const dshModelCatalogModelSchema = z
     id: nonEmptyString,
     name: nonEmptyString,
     description: z.string().optional(),
+    inputModalities: z.array(nonEmptyString).optional(),
     reasoning: z
       .object({
         efforts: z.array(dshModelReasoningEffortSchema).min(1),

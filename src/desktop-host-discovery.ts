@@ -6,7 +6,6 @@ import { DshClient } from "./dsh-client.js";
 
 const execFileAsync = promisify(execFile);
 const DESKTOP_PROCESS_NAME = "DSH Desktop";
-const DESKTOP_EXECUTABLE_NAME = "DSH Desktop.exe";
 
 export type DesktopHostDiscoveryErrorCode =
   | "unsupported_platform"
@@ -52,12 +51,12 @@ export interface DesktopHostDiscoveryDependencies {
   probe: (baseUrl: string) => Promise<boolean>;
 }
 
-function exactDesktopProcess(process: DesktopProcess): boolean {
+function exactDesktopProcess(process: DesktopProcess, name = DESKTOP_PROCESS_NAME): boolean {
   return (
     Number.isInteger(process.pid) &&
     process.pid > 0 &&
-    process.name === DESKTOP_PROCESS_NAME &&
-    win32.basename(process.executablePath).toLowerCase() === DESKTOP_EXECUTABLE_NAME.toLowerCase()
+    process.name === name &&
+    win32.basename(process.executablePath).toLowerCase() === `${name}.exe`.toLowerCase()
   );
 }
 
@@ -78,7 +77,7 @@ export async function discoverDesktopHostEndpoint(
     );
   }
 
-  const processes = (await dependencies.listProcesses()).filter(exactDesktopProcess);
+  const processes = (await dependencies.listProcesses()).filter((process) => exactDesktopProcess(process));
   const desktopPids = [...new Set(processes.map((process) => process.pid))].sort((left, right) => left - right);
   if (desktopPids.length === 0) {
     throw new DesktopHostDiscoveryError("desktop_not_running", "no exact DSH Desktop process was found");
@@ -128,6 +127,38 @@ export async function discoverDesktopHostEndpoint(
     desktopPids,
     candidateCount: candidates.length,
   };
+}
+
+/**
+ * Read-only candidate discovery, not authentication or proof of a Gateway.
+ * The official product owns a randomized loopback Host. Refuse ambiguity
+ * before any credential is sent; the authenticated transport must validate
+ * the selected Host afterwards. Never probe /connect here (it creates a Peer).
+ */
+export async function discoverOfficialDesktopHostEndpoint(
+  dependencies: Omit<DesktopHostDiscoveryDependencies, "probe">,
+): Promise<DesktopHostResolution & { protocolVerified: false }> {
+  if (dependencies.platform !== "win32") {
+    throw new DesktopHostDiscoveryError("unsupported_platform", "official Desktop automatic discovery requires Windows");
+  }
+  const processes = (await dependencies.listProcesses()).filter((process) => exactDesktopProcess(process, "DeepSeek Harness"));
+  const desktopPids = [...new Set(processes.map((process) => process.pid))].sort((a, b) => a - b);
+  if (desktopPids.length === 0) {
+    throw new DesktopHostDiscoveryError("desktop_not_running", "no exact DeepSeek Harness process was found");
+  }
+  const pids = new Set(desktopPids);
+  const candidates = [...new Set((await dependencies.listListeners())
+    .filter((listener) => pids.has(listener.pid)).map(loopbackOrigin)
+    .filter((origin): origin is string => origin !== undefined))];
+  if (candidates.length === 0) {
+    throw new DesktopHostDiscoveryError("desktop_host_not_found", "official Desktop has no owned loopback Host candidate");
+  }
+  if (candidates.length !== 1) {
+    throw new DesktopHostDiscoveryError("ambiguous_desktop_host",
+      "multiple official Desktop loopback candidates; refusing to guess or send credentials", { candidateCount: candidates.length });
+  }
+  return { baseUrl: candidates[0]!, source: "windows-process-listener", desktopPids,
+    candidateCount: 1, protocolVerified: false };
 }
 
 function parseLocalEndpoint(raw: string): { address: string; port: number } | undefined {
@@ -191,7 +222,7 @@ function parseProcessJson(output: string): DesktopProcess[] {
 export async function listWindowsDesktopProcesses(): Promise<DesktopProcess[]> {
   const script =
     "$ErrorActionPreference='Stop'; " +
-    "$items=@(Get-Process -Name 'DSH Desktop' -ErrorAction SilentlyContinue | ForEach-Object { " +
+    "$items=@(Get-Process -Name 'DSH Desktop','DeepSeek Harness' -ErrorAction SilentlyContinue | ForEach-Object { " +
     "[pscustomobject]@{pid=$_.Id;name=$_.ProcessName;executablePath=$_.Path} }); " +
     "ConvertTo-Json -InputObject $items -Compress";
   const { stdout } = await execFileAsync(windowsSystemTool("WindowsPowerShell\\v1.0\\powershell.exe"), [
@@ -219,4 +250,9 @@ export async function discoverRunningWindowsDesktopHost(timeoutMs = 2_000): Prom
       return true;
     },
   });
+}
+
+export function discoverRunningWindowsOfficialDesktopHost(): Promise<DesktopHostResolution & { protocolVerified: false }> {
+  return discoverOfficialDesktopHostEndpoint({ platform: process.platform,
+    listProcesses: listWindowsDesktopProcesses, listListeners: listWindowsTcpListeners });
 }
