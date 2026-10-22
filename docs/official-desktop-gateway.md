@@ -13,7 +13,7 @@ After building a reviewed checkout, preview without installing:
 npm run setup -- --gateway --desktop-auto --dry-run
 ```
 
-`--gateway` requires either Windows `--desktop-auto` or an explicit `--host`
+`--gateway` requires either Windows/macOS `--desktop-auto` or an explicit `--host`
 origin. Existing MCP/Skill conflicts still require separate explicit replacement
 flags. Merely developing the adapter does not authorize replacing an installation.
 
@@ -48,6 +48,10 @@ with the startup pipe on stdin. A separately reviewed startup receiver must feed
 that pipe directly; do not paste the startup URL into a terminal or chat, use
 `tee`, redirect it to a file, or expose raw Desktop stderr. The temporary
 operational receiver used during investigation is not installed integration.
+On macOS, select the actual executable inside the trusted caller's `.app/Contents/MacOS/`,
+not the `.app` directory, `open -a`, or a shell wrapper. Direct child-environment
+delivery is the same on both platforms; it does not retrofit a running app or
+prove that the packaged caller forwards that environment to its MCP children.
 
 The capture validates one official loopback HTTP root announcement and its
 32-byte/base64url launch token. Startup input is limited to 256 KiB total and
@@ -65,8 +69,8 @@ the startup stream; Desktop output must not become a Codex prompt. Caller output
 belongs to the trusted caller. Only GUI-style caller launching is qualified by
 this interface; it is not an interactive CLI stdin passthrough.
 
-The Windows CLI refuses an already-running same-name caller, both before capture
-and before launch. Each OS-only process query has a 30-second upper bound;
+The Windows/macOS CLI refuses an already-running same-name caller, both before capture
+and before launch, conservatively including copies in another location. Each Windows OS-only process query has a 30-second upper bound;
 failure or timeout refuses the handoff, never proves that the caller is absent,
 and is not retried. The query receives only an allowlist of normal OS environment
 variables needed by Windows PowerShell, not DSH/caller credentials. Quit Codex normally at a separately approved installation
@@ -74,6 +78,10 @@ checkpoint before using it; single-instance forwarding does not reliably refresh
 an existing process environment. A process-start race and actual packaged Codex
 environment inheritance remain live-qualification items, not proven by tests.
 The command never kills a caller or Desktop to resolve a conflict.
+macOS uses the system `/bin/ps` command's `comm` field (no arguments or environment),
+with a 10-second deadline and bounded output. A failed/empty process query refuses
+the handoff; it never means the caller is absent. No sudo or permissions changes
+are attempted. Native subprocesses receive only a fixed non-credential OS environment.
 
 The bridge retains automatic Host discovery. `DSH_CONNECT_ORIGIN` is an
 authorization constraint, **not** a static `DSH_HOST_URL`: a resolved origin
@@ -94,6 +102,15 @@ official Host admission, or model request has qualified this handoff yet.
 - Windows discovery recognizes the exact `DeepSeek Harness` executable and only
   its owned loopback listener. More than one candidate is an error. Discovery is
   not protocol verification and never scans arbitrary ports or exchanges tokens.
+- macOS official discovery recognizes the packaged `DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness`
+  path, including user-installed or translocated locations, and excludes helper
+  bundles/lookalikes. System `/usr/sbin/lsof` is restricted to those exact PIDs,
+  numeric TCP listening sockets and loopback addresses. More than one origin,
+  malformed metadata, missing tools or failed inspection refuses discovery;
+  there is no global socket query, port scan, authentication probe or sudo fallback.
+  Path/process identity is not application code-signature verification. Legacy
+  third-party Desktop automatic discovery remains Windows-only; Darwin setup
+  requires the explicit official `--gateway` option.
 - The explicitly selected adapter exchanges the token at `/connect`, validates
   the same-origin Mux redirect and authority-bound API Cookie, and owns one API
   socket. Cookies remain in memory and separate from browser storage.
@@ -186,3 +203,6 @@ notification stream is not implemented.
 - [Connection](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.2/packages/client/connection/README.md)
 - [Gateway stream protocol](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.2/packages/api/gateway/src/stream-protocol.ts)
 - [Session Remote types](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.2/packages/api/session-controller/src/types.ts)
+- [Official Desktop product packaging](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.2/apps/desktop/scripts/electron-builder-config.mjs)
+- [Apple ps command fields](https://github.com/apple-oss-distributions/adv_cmds/blob/main/ps/ps.1)
+- [lsof PID selection and field output](https://github.com/lsof-org/lsof/blob/master/docs/manpage.md)

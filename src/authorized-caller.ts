@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import { captureStartupAuthorization, StartupAuthorizationError, type AuthorizedCaller } from "./startup-authorization.js";
+import { macosCallerIsRunning } from "./macos-process-inspection.js";
 
 export interface AuthorizedCallerDependencies {
   callerIsRunning: (executable: string) => Promise<boolean>;
@@ -44,10 +45,16 @@ async function windowsCallerIsRunning(executable: string): Promise<boolean> {
   throw new StartupAuthorizationError("caller_preflight_failed");
 }
 
+async function nativeCallerIsRunning(executable: string): Promise<boolean> {
+  if (process.platform !== "darwin") return windowsCallerIsRunning(executable);
+  try { return await macosCallerIsRunning(executable); }
+  catch { throw new StartupAuthorizationError("caller_preflight_failed"); }
+}
+
 /** Explicit operator command, not an MCP wrapper and never a Desktop launcher. */
 export async function runAuthorizedCaller(args: string[], input: Readable,
   dependencies: AuthorizedCallerDependencies = {
-    callerIsRunning: windowsCallerIsRunning, output: (message) => console.error(message),
+    callerIsRunning: nativeCallerIsRunning, output: (message) => console.error(message),
   }): Promise<ChildProcess | undefined> {
   if (args.length === 1 && args[0] === "--help") {
     dependencies.output("Usage: authorized-caller --caller <absolute-trusted-executable> [-- <args...>]; trusted startup pipe on stdin. Never starts Desktop.");
@@ -77,7 +84,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   process.once("SIGINT", () => controller.abort());
   process.once("SIGTERM", () => controller.abort());
   void runAuthorizedCaller(process.argv.slice(2), process.stdin, {
-    callerIsRunning: windowsCallerIsRunning, output: (message) => console.error(message), signal: controller.signal,
+    callerIsRunning: nativeCallerIsRunning, output: (message) => console.error(message), signal: controller.signal,
   }).catch((error: unknown) => {
     const safe = error instanceof StartupAuthorizationError ? error : new StartupAuthorizationError("handoff_failed");
     console.error(safe.message);

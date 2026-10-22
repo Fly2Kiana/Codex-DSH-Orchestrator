@@ -95,3 +95,15 @@ export async function listMacosTcpListeners(pids: number[]): Promise<TcpListener
   if (listeners.some((listener) => !scope.includes(listener.pid))) throw new MacosInspectionError("listener_scope_mismatch");
   return listeners;
 }
+
+/** Same-name refusal is conservative across app copies and single-instance forwarding. */
+export async function macosCallerIsRunning(executable: string,
+  inspect: () => Promise<DesktopProcess[]> = listMacosProcesses): Promise<boolean> {
+  if (!posix.isAbsolute(executable)) throw new MacosInspectionError("invalid_caller");
+  try {
+    const processes = await inspect();
+    if (!processes.length) throw new Error();
+    const name = posix.basename(executable).toLowerCase();
+    return processes.some((row) => row.name.toLowerCase() === name);
+  } catch { throw new MacosInspectionError("process_query_failed"); }
+}

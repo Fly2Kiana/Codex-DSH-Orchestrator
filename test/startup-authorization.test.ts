@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { spawn } from "node:child_process";
+import { copyFile, mkdtemp, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
@@ -258,9 +261,48 @@ test("real CLI refuses an already-running caller without printing the supplied s
   child.stdin!.end(announcement);
   const [code] = await once(child, "close");
   assert.equal(code, 1);
-  assert.match(output, process.platform === "win32" ? /caller_already_running/ : /unsupported_platform/);
+  assert.match(output, process.platform === "win32" || process.platform === "darwin" ? /caller_already_running/ : /unsupported_platform/);
   assert.equal(output.includes(token), false);
   assert.equal(output.includes(origin), false);
+});
+
+test("native Windows/macOS CLI hands a synthetic startup pipe to one fresh inert caller", async () => {
+  if (process.platform !== "win32" && process.platform !== "darwin") {
+    await assert.rejects(runAuthorizedCaller(["--caller", process.execPath], new PassThrough()), { code: "unsupported_platform" });
+    return;
+  }
+  const home = await mkdtemp(join(await realpath(tmpdir()), "dsh-caller-fixture-"));
+  let child: ReturnType<typeof spawn> | undefined;
+  try {
+    const executable = join(home, `${basename(home)}${process.platform === "win32" ? ".exe" : ""}`);
+    await copyFile(process.execPath, executable);
+    const script = "console.log(JSON.stringify({tokenReceived:process.env.DSH_CONNECT_TOKEN==='A'.repeat(43)," +
+      "bound:process.env.DSH_CONNECT_ORIGIN==='http://127.0.0.1:45678'," +
+      "credentialInArgs:process.argv.some(x=>x.includes('A'.repeat(43)))}));";
+    child = spawn(process.execPath, ["--import", "tsx", fileURLToPath(new URL("../src/authorized-caller.ts", import.meta.url)),
+      "--caller", executable, "--", "-e", script], { stdio: ["pipe", "pipe", "pipe"] });
+    let output = "";
+    let diagnostics = "";
+    child.stdout!.on("data", (chunk) => {
+      output += chunk;
+      if (output.includes("\n")) child!.stdin!.end(); // End only this fixture's startup source after the child has launched.
+    });
+    child.stderr!.on("data", (chunk) => { diagnostics += chunk; });
+    const closed = once(child, "close", { signal: AbortSignal.timeout(15_000) });
+    child.stdin!.write(announcement);
+    const [code] = await closed;
+    assert.equal(code, 0);
+    assert.deepEqual(JSON.parse(output), { tokenReceived: true, bound: true, credentialInArgs: false });
+    assert.equal((output + diagnostics).includes(token), false);
+    assert.equal(diagnostics.includes(origin), false);
+  } finally {
+    if (child && child.exitCode === null && child.signalCode === null) {
+      const closed = once(child, "close");
+      child.kill(); // Only the fake Node CLI above; no Desktop or Codex process.
+      await closed;
+    }
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 25 });
+  }
 });
 
 test("native caller preflight fails closed when the Windows process-query executable is unavailable", async () => {
@@ -280,7 +322,8 @@ test("native caller preflight fails closed when the Windows process-query execut
   child.stdin!.end(announcement);
   const [code] = await once(child, "close");
   assert.equal(code, 1);
-  assert.match(output, process.platform === "win32" ? /caller_preflight_failed/ : /unsupported_platform/);
+  assert.match(output, process.platform === "win32" ? /caller_preflight_failed/
+    : process.platform === "darwin" ? /caller_already_running/ : /unsupported_platform/);
   assert.equal(output.includes(token), false);
   assert.equal(output.includes(origin), false);
   assert.equal(output.includes("nonexistent-system-root"), false);

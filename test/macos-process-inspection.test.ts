@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { discoverOfficialDesktopHostEndpoint } from "../src/desktop-host-discovery.js";
-import { listMacosProcesses, listMacosTcpListeners, parseMacosProcessList, parseMacosTcpListeners } from "../src/macos-process-inspection.js";
+import { listMacosProcesses, listMacosTcpListeners, macosCallerIsRunning, parseMacosProcessList, parseMacosTcpListeners } from "../src/macos-process-inspection.js";
 
 test("macOS command metadata preserves full spaced app paths without requesting arguments", () => {
   assert.deepEqual(parseMacosProcessList("  101 /Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness\n" +
@@ -21,6 +21,16 @@ test("macOS command metadata preserves full spaced app paths without requesting 
     assert.throws(() => parseMacosProcessList(output), (error: any) =>
       error.code === "process_metadata_invalid" && !String(error).includes("SYNTHETIC-SECRET"));
   }
+});
+
+test("macOS caller checks conservatively refuse same-name instances and sanitize failed OS inspection", async () => {
+  const caller = "/Applications/Codex.app/Contents/MacOS/Codex";
+  assert.equal(await macosCallerIsRunning(caller, async () => parseMacosProcessList(
+    "101 /Users/example/Other/Codex.app/Contents/MacOS/Codex\n")), true);
+  assert.equal(await macosCallerIsRunning(caller, async () => parseMacosProcessList("101 (Codex)\n")), true);
+  assert.equal(await macosCallerIsRunning(caller, async () => parseMacosProcessList("101 /Applications/Helper.app/Contents/MacOS/Codex Helper\n")), false);
+  await assert.rejects(macosCallerIsRunning(caller, async () => { throw new Error("SYNTHETIC-SECRET"); }),
+    (error: any) => error.code === "process_query_failed" && !String(error).includes("SYNTHETIC-SECRET"));
 });
 
 test("native macOS inspection finds only its own synthetic listener without Desktop or authentication", async () => {

@@ -217,9 +217,11 @@ export function validateDshCliSetupPrerequisite(
   return dshVersion;
 }
 
-export function validateDesktopAutoPlatform(hostMode: SetupHostMode, platform: NodeJS.Platform): void {
-  if (hostMode === "desktop-auto" && platform !== "win32") {
-    throw new Error("--desktop-auto is supported only on Windows with DSH Desktop");
+export function validateDesktopAutoPlatform(hostMode: SetupHostMode, platform: NodeJS.Platform,
+  hostProtocol: "legacy" | "gateway" = "legacy"): void {
+  if (hostMode === "desktop-auto" && platform !== "win32" && !(platform === "darwin" && hostProtocol === "gateway")) {
+    throw new Error(hostProtocol === "gateway" ? "official Gateway --desktop-auto is supported only on Windows or macOS"
+      : "legacy --desktop-auto is supported only on Windows with DSH Desktop");
   }
 }
 
@@ -250,7 +252,7 @@ Usage:
 
 Options:
   --host <url>       DSH Web Host origin (default: ${DEFAULT_HOST_URL})
-  --desktop-auto     Discover the verified Windows DSH Desktop loopback listener
+  --desktop-auto     Discover an owned Desktop listener (official Gateway: Windows/macOS)
   --gateway          Opt in to official authenticated Gateway (requires --desktop-auto or --host)
   --preset <name>    DSH agent preset (default: ${DEFAULT_PRESET})
   --no-preset        Follow DSH's own default preset
@@ -279,7 +281,7 @@ async function main(): Promise<void> {
   if (majorNodeVersion < 22) throw new Error(`Node.js 22 or newer is required; detected ${process.versions.node}`);
 
   const hostMode: SetupHostMode = options.desktopAuto ? "desktop-auto" : "static";
-  validateDesktopAutoPlatform(hostMode, process.platform);
+  validateDesktopAutoPlatform(hostMode, process.platform, options.gateway ? "gateway" : "legacy");
   const dshVersion = validateDshCliSetupPrerequisite(options.gateway ? "desktop-auto" : hostMode, await probeDshCliVersion());
   let hostUrl: string | undefined;
   if (hostMode === "static") {

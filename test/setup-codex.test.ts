@@ -343,6 +343,14 @@ test("desktop auto setup rejects unsupported operating systems before installati
   assert.throws(() => validateDesktopAutoPlatform("desktop-auto", "linux"), /supported only on Windows/);
 });
 
+test("macOS desktop-auto setup is allowed only for the official Gateway without weakening legacy checks", () => {
+  assert.doesNotThrow(() => validateDesktopAutoPlatform("desktop-auto", "darwin", "gateway"));
+  assert.doesNotThrow(() => validateDesktopAutoPlatform("desktop-auto", "win32", "gateway"));
+  assert.throws(() => validateDesktopAutoPlatform("desktop-auto", "darwin", "legacy"), /supported only on Windows/);
+  assert.throws(() => validateDesktopAutoPlatform("desktop-auto", "linux", "gateway"), /Windows or macOS/);
+  assert.doesNotThrow(() => validateDesktopAutoPlatform("static", "linux", "gateway"));
+});
+
 test("setup resolves the Codex config root without repurposing the environment", () => {
   const customRoot = join(tmpdir(), "custom-codex");
   assert.equal(defaultCodexConfigPath({ CODEX_HOME: customRoot }), join(customRoot, "config.toml"));
