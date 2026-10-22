@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 import { join, posix, win32 } from "node:path";
 
 import { DshClient } from "./dsh-client.js";
-import { listMacosProcesses, listMacosTcpListeners } from "./macos-process-inspection.js";
+import { listMacosProcesses, listMacosTcpListeners, MacosInspectionError } from "./macos-process-inspection.js";
 
 const execFileAsync = promisify(execFile);
 const DESKTOP_PROCESS_NAME = "DSH Desktop";
@@ -13,17 +13,34 @@ export type DesktopHostDiscoveryErrorCode =
   | "desktop_not_running"
   | "desktop_host_not_found"
   | "desktop_inspection_failed"
+  | "invalid_authorized_origin"
+  | "authorized_origin_not_found"
   | "ambiguous_desktop_host";
 
+export interface DesktopDiscoveryDiagnostic {
+  stage: "platform" | "process-query" | "process-matching" | "listener-query" | "candidate-selection" | "origin-binding";
+  reason: DesktopHostDiscoveryErrorCode | "process_query_failed" | "process_metadata_invalid"
+    | "listener_query_failed" | "listener_metadata_invalid" | "listener_scope_mismatch" | "invalid_pid_scope";
+}
+
+const discoveryStages: Record<DesktopHostDiscoveryErrorCode, DesktopDiscoveryDiagnostic["stage"]> = {
+  unsupported_platform: "platform", desktop_not_running: "process-matching",
+  desktop_host_not_found: "candidate-selection", desktop_inspection_failed: "candidate-selection",
+  ambiguous_desktop_host: "candidate-selection", invalid_authorized_origin: "origin-binding",
+  authorized_origin_not_found: "origin-binding",
+};
+
 export class DesktopHostDiscoveryError extends Error {
+  readonly diagnostic: DesktopDiscoveryDiagnostic;
   constructor(
     readonly code: DesktopHostDiscoveryErrorCode,
     message: string,
     readonly details: Record<string, number> = {},
-    options?: ErrorOptions,
+    options?: ErrorOptions & { diagnostic?: DesktopDiscoveryDiagnostic },
   ) {
     super(message, options);
     this.name = "DesktopHostDiscoveryError";
+    this.diagnostic = options?.diagnostic ?? { stage: discoveryStages[code], reason: code };
   }
 }
 
@@ -51,6 +68,36 @@ export interface DesktopHostDiscoveryDependencies {
   listProcesses: () => Promise<DesktopProcess[]>;
   listListeners: (pids: number[]) => Promise<TcpListener[]>;
   probe: (baseUrl: string) => Promise<boolean>;
+}
+
+export interface OfficialDesktopDiscoveryOptions {
+  /** Constraint on OS-owned candidates, never a static endpoint or a probe target. */
+  authorizedOrigin?: string;
+}
+
+function authorizationOrigin(raw: string): string {
+  // Only literal loopback roots: never resolve DNS or echo untrusted input.
+  if (/^https?:\/\/(?:127\.0\.0\.1|\[::1\])(?::\d+)?\/?$/i.test(raw)) {
+    try { return new URL(raw).origin; } catch { /* Fail closed below. */ }
+  }
+  throw new DesktopHostDiscoveryError("invalid_authorized_origin", "invalid official Desktop authorization origin");
+}
+
+async function inspectOfficialMetadata<T>(stage: "process-query" | "listener-query", query: () => Promise<T>): Promise<T> {
+  try { return await query(); } catch (error) {
+    let reason: DesktopDiscoveryDiagnostic["reason"] = stage === "process-query" ? "process_query_failed" : "listener_query_failed";
+    // Preserve only audited native codes, never subprocess output/message/cause.
+    if (error instanceof MacosInspectionError) {
+      if (stage === "process-query" && error.code === "process_metadata_invalid") reason = "process_metadata_invalid";
+      if (stage === "listener-query") {
+        if (error.code === "listener_metadata_invalid") reason = "listener_metadata_invalid";
+        if (error.code === "listener_scope_mismatch") reason = "listener_scope_mismatch";
+        if (error.code === "invalid_pid_scope") reason = "invalid_pid_scope";
+      }
+    }
+    throw new DesktopHostDiscoveryError("desktop_inspection_failed", "official Desktop metadata inspection failed; refusing to guess a Host",
+      {}, { diagnostic: { stage, reason } });
+  }
 }
 
 function exactDesktopProcess(process: DesktopProcess, name = DESKTOP_PROCESS_NAME): boolean {
@@ -133,18 +180,20 @@ export async function discoverDesktopHostEndpoint(
 
 /**
  * Read-only candidate discovery, not authentication or proof of a Gateway.
- * The official product owns a randomized loopback Host. Refuse ambiguity
- * before any credential is sent; the authenticated transport must validate
+ * The official product owns a randomized loopback Host. An authorization
+ * origin may narrow only OS-owned candidates; otherwise refuse ambiguity
+ * before any credential is sent. The authenticated transport must validate
  * the selected Host afterwards. Never probe /connect here (it creates a Peer).
  */
 export async function discoverOfficialDesktopHostEndpoint(
   dependencies: Omit<DesktopHostDiscoveryDependencies, "probe">,
+  options: OfficialDesktopDiscoveryOptions = {},
 ): Promise<DesktopHostResolution & { protocolVerified: false }> {
   if (dependencies.platform !== "win32" && dependencies.platform !== "darwin") {
     throw new DesktopHostDiscoveryError("unsupported_platform", "official Desktop automatic discovery requires Windows or macOS");
   }
   const macos = dependencies.platform === "darwin";
-  const processes = (await dependencies.listProcesses()).filter((process) => macos
+  const processes = (await inspectOfficialMetadata("process-query", dependencies.listProcesses)).filter((process) => macos
     ? Number.isInteger(process.pid) && process.pid > 0 && process.name === "DeepSeek Harness" &&
       posix.isAbsolute(process.executablePath) && posix.normalize(process.executablePath) === process.executablePath &&
       process.executablePath.endsWith("/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness")
@@ -154,18 +203,25 @@ export async function discoverOfficialDesktopHostEndpoint(
     throw new DesktopHostDiscoveryError("desktop_not_running", "no exact DeepSeek Harness process was found");
   }
   const pids = new Set(desktopPids);
-  const candidates = [...new Set((await dependencies.listListeners(desktopPids))
+  const candidates = [...new Set((await inspectOfficialMetadata("listener-query", () => dependencies.listListeners(desktopPids)))
     .filter((listener) => pids.has(listener.pid)).map(loopbackOrigin)
     .filter((origin): origin is string => origin !== undefined))];
   if (candidates.length === 0) {
     throw new DesktopHostDiscoveryError("desktop_host_not_found", "official Desktop has no owned loopback Host candidate");
   }
-  if (candidates.length !== 1) {
+  const authorizedOrigin = options.authorizedOrigin === undefined ? undefined : authorizationOrigin(options.authorizedOrigin);
+  const selected = authorizedOrigin === undefined ? candidates
+    : candidates.filter((candidate) => new URL(candidate).origin === authorizedOrigin);
+  if (selected.length === 0) {
+    throw new DesktopHostDiscoveryError("authorized_origin_not_found",
+      "authorization origin is not an observed official Desktop listener; refusing to send credentials");
+  }
+  if (selected.length !== 1) {
     throw new DesktopHostDiscoveryError("ambiguous_desktop_host",
       "multiple official Desktop loopback candidates; refusing to guess or send credentials", { candidateCount: candidates.length });
   }
-  return { baseUrl: candidates[0]!, source: macos ? "macos-process-listener" : "windows-process-listener", desktopPids,
-    candidateCount: 1, protocolVerified: false };
+  return { baseUrl: selected[0]!, source: macos ? "macos-process-listener" : "windows-process-listener", desktopPids,
+    candidateCount: candidates.length, protocolVerified: false };
 }
 
 function parseLocalEndpoint(raw: string): { address: string; port: number } | undefined {
@@ -259,21 +315,16 @@ export async function discoverRunningWindowsDesktopHost(timeoutMs = 2_000): Prom
   });
 }
 
-export function discoverRunningWindowsOfficialDesktopHost(): Promise<DesktopHostResolution & { protocolVerified: false }> {
+export function discoverRunningWindowsOfficialDesktopHost(options: OfficialDesktopDiscoveryOptions = {}): Promise<DesktopHostResolution & { protocolVerified: false }> {
   if (process.platform !== "win32") {
     return Promise.reject(new DesktopHostDiscoveryError("unsupported_platform", "Windows discovery requires Windows"));
   }
   return discoverOfficialDesktopHostEndpoint({ platform: process.platform,
-    listProcesses: listWindowsDesktopProcesses, listListeners: listWindowsTcpListeners });
+    listProcesses: listWindowsDesktopProcesses, listListeners: listWindowsTcpListeners }, options);
 }
 
-export async function discoverRunningOfficialDesktopHost(): Promise<DesktopHostResolution & { protocolVerified: false }> {
-  if (process.platform !== "darwin") return discoverRunningWindowsOfficialDesktopHost();
-  try {
-    return await discoverOfficialDesktopHostEndpoint({ platform: "darwin",
-      listProcesses: listMacosProcesses, listListeners: listMacosTcpListeners });
-  } catch (error) {
-    if (error instanceof DesktopHostDiscoveryError) throw error;
-    throw new DesktopHostDiscoveryError("desktop_inspection_failed", "macOS process/listener inspection failed; refusing to guess a Host");
-  }
+export async function discoverRunningOfficialDesktopHost(options: OfficialDesktopDiscoveryOptions = {}): Promise<DesktopHostResolution & { protocolVerified: false }> {
+  if (process.platform !== "darwin") return discoverRunningWindowsOfficialDesktopHost(options);
+  return discoverOfficialDesktopHostEndpoint({ platform: "darwin",
+    listProcesses: listMacosProcesses, listListeners: listMacosTcpListeners }, options);
 }

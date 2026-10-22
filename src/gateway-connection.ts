@@ -3,15 +3,21 @@ import WebSocket from "ws";
 import { z } from "zod";
 
 import { DshTransportError, type HostEndpointResolver, type HostEndpointSnapshot } from "./dsh-client.js";
+import { DesktopHostDiscoveryError, type DesktopDiscoveryDiagnostic } from "./desktop-host-discovery.js";
 
 export type GatewayFailureCode =
   | "auth_required" | "auth_rejected" | "unsupported_protocol"
   | "transport_failure" | "aborted" | "buffer_overflow" | "rpc_rejected" | "peer_conflict";
 
+export interface GatewayFailureDiagnostic {
+  stage: DesktopDiscoveryDiagnostic["stage"] | "authorization-input" | "discovery" | "http-connect" | "websocket-connect";
+  reason: DesktopDiscoveryDiagnostic["reason"] | GatewayFailureCode;
+}
+
 /** Deliberately contains no URL, raw response, credential, or underlying cause. */
 export class GatewayConnectionError extends DshTransportError {
   constructor(readonly code: GatewayFailureCode, message: string,
-    readonly rpcCode?: "session/queue-item-not-found") {
+    readonly rpcCode?: "session/queue-item-not-found", readonly diagnostic?: GatewayFailureDiagnostic) {
     super(message);
     this.name = "GatewayConnectionError";
   }
@@ -26,7 +32,7 @@ export interface GatewayConnectionOptions {
   endpoint: HostEndpointResolver;
   /** Explicit operator input only; never a credential-store or browser-cookie lookup. */
   getConnectToken: () => string | undefined;
-  /** Startup credential is valid only for this origin; never a discovery override. */
+  /** Startup credential binding; may constrain OS-owned discovery, never override it. */
   connectTokenOrigin?: string;
   timeoutMs: number;
   fetchImpl?: typeof fetch;
@@ -88,7 +94,7 @@ class StreamInbox {
   }
 }
 
-function failure(code: GatewayFailureCode): GatewayConnectionError {
+function failure(code: GatewayFailureCode, diagnostic?: GatewayFailureDiagnostic): GatewayConnectionError {
   const messages: Record<GatewayFailureCode, string> = {
     auth_required: "Official Harness requires an explicitly supplied connection token",
     auth_rejected: "Official Harness rejected API Peer authorization; no authentication fallback was attempted",
@@ -99,7 +105,7 @@ function failure(code: GatewayFailureCode): GatewayConnectionError {
     rpc_rejected: "Official Harness rejected the Gateway RPC",
     peer_conflict: "Official Harness refused duplicate API Peer socket ownership",
   };
-  return new GatewayConnectionError(code, messages[code]);
+  return new GatewayConnectionError(code, messages[code], undefined, diagnostic);
 }
 
 function originUrl(raw: string): URL {
@@ -301,10 +307,13 @@ export class GatewayConnection {
 
   async #establish(signal?: AbortSignal): Promise<Peer> {
     let peer: Peer | undefined;
+    let stage: GatewayFailureDiagnostic["stage"] = "authorization-input";
     try {
       const token = this.#getToken();
       if (!token?.trim()) throw failure("auth_required");
+      stage = "discovery";
       const resolved = await this.#endpoint.resolve();
+      stage = "origin-binding";
       const origin = originUrl(resolved.baseUrl);
       if (this.#tokenOrigin !== undefined && origin.origin !== this.#tokenOrigin) throw failure("auth_rejected");
       this.#endpointSnapshot = { ...this.#endpointSnapshot, resolvedBaseUrl: origin.origin, source: resolved.source,
@@ -319,6 +328,7 @@ export class GatewayConnection {
       const url = new URL("/connect", origin);
       url.searchParams.set("token", token);
       url.searchParams.set("interactions", "answer");
+      stage = "http-connect";
       const response = await this.#fetch(url, {
         method: "GET", redirect: "manual", credentials: "omit", cache: "no-store", signal: connectSignal,
       });
@@ -335,13 +345,19 @@ export class GatewayConnection {
         peer.cookie = apiCookie(response, origin);
       } finally { await response.body?.cancel().catch(() => undefined); }
       if (connectSignal.aborted) throw failure("aborted");
+      stage = "websocket-connect";
       peer.ready = await this.#openSocket(peer, connectSignal);
       if (this.#disposed || connectSignal.aborted) throw failure("aborted");
       return peer;
     } catch (error) {
       if (peer) this.#release(peer);
-      throw signal?.aborted || this.#disposed ? failure("aborted")
+      if (!signal?.aborted && !this.#disposed && error instanceof DesktopHostDiscoveryError) {
+        const bindingRejected = error.code === "invalid_authorized_origin" || error.code === "authorized_origin_not_found";
+        throw failure(bindingRejected ? "auth_rejected" : "transport_failure", error.diagnostic);
+      }
+      const safe = signal?.aborted || this.#disposed ? failure("aborted")
         : error instanceof GatewayConnectionError ? error : failure("transport_failure");
+      throw failure(safe.code, safe.diagnostic ?? { stage, reason: safe.code });
     }
   }
 

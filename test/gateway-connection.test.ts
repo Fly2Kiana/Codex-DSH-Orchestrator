@@ -7,10 +7,38 @@ import { WebSocketServer } from "ws";
 import { z } from "zod";
 
 import { GatewayConnection, GatewayConnectionError } from "../src/gateway-connection.js";
+import { discoverOfficialDesktopHostEndpoint } from "../src/desktop-host-discovery.js";
+import { loadConfig } from "../src/config.js";
+import { createHostEndpointResolver } from "../src/host-endpoint.js";
 
 // Contract fixtures: official Harness dsh-v0.2.1-rc.2, Connection + Gateway.
 // Synthetic credentials only. No real Host, provider, or credential store is used.
 const token = "synthetic-launch-token";
+
+test("Gateway reports sanitized process-query diagnostics before any network request", async () => {
+  let networkRequests = 0;
+  const client = new GatewayConnection({
+    endpoint: { mode: "desktop-auto", resolve: () => discoverOfficialDesktopHostEndpoint({
+      platform: "darwin",
+      listProcesses: async () => { throw new Error(`private-path ${token} http://127.0.0.1:24001`); },
+      listListeners: async () => { assert.fail("listener query must not run"); },
+    }) },
+    getConnectToken: () => token, timeoutMs: 1_000,
+    fetchImpl: async () => { networkRequests++; assert.fail("network must not run"); },
+  });
+  try {
+    await assert.rejects(client.connect(), (error: unknown) => {
+      assert.ok(error instanceof GatewayConnectionError);
+      assert.equal(error.code, "transport_failure");
+      assert.deepEqual(error.diagnostic, { stage: "process-query", reason: "process_query_failed" });
+      const rendered = `${error.stack} ${JSON.stringify(error)}`;
+      for (const secret of [token, "private-path", "127.0.0.1", "24001"]) assert.equal(rendered.includes(secret), false);
+      return true;
+    });
+    assert.equal(networkRequests, 0);
+    assert.equal(client.endpointSnapshot().resolutionEpoch, 0);
+  } finally { client.close(); }
+});
 
 async function gatewayFixture() {
   let cookie = "";
@@ -71,7 +99,7 @@ async function gatewayFixture() {
     timeoutMs,
     ...(connectTokenOrigin === undefined ? {} : { connectTokenOrigin }),
   });
-  return { requests, opens, sockets, connection, cookie,
+  return { baseUrl, requests, opens, sockets, connection, cookie,
     setConnectStatus: (value: number) => { connectStatus = value; },
     setLocation: (value: string) => { location = value; },
     setRpcMode: (value: typeof rpcMode) => { rpcMode = value; },
@@ -87,6 +115,100 @@ async function gatewayFixture() {
     },
   };
 }
+
+test("Gateway authenticates only the authorized OS-owned fixture when official Desktop has two listeners", async () => {
+  const intended = await gatewayFixture();
+  const other = await gatewayFixture();
+  const dependencies = { platform: "darwin" as const,
+    listProcesses: async () => [101, 102].map((pid) => ({ pid, name: "DeepSeek Harness",
+      executablePath: "/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness" })),
+    listListeners: async () => [other, intended].map((host) => ({ pid: 102, address: "127.0.0.1", port: Number(new URL(host.baseUrl).port) })),
+  };
+  const config = loadConfig({ DSH_HOST_PROTOCOL: "gateway", DSH_HOST_MODE: "desktop-auto", DSH_CONNECT_ORIGIN: intended.baseUrl });
+  const endpoint = createHostEndpointResolver(config, async () => { assert.fail("no legacy probe"); },
+    (options) => discoverOfficialDesktopHostEndpoint(dependencies, options));
+  const { connectTokenOrigin: _binding, ...unboundConfig } = config;
+  const client = new GatewayConnection({ endpoint, getConnectToken: () => token, connectTokenOrigin: config.connectTokenOrigin, timeoutMs: 2_000 });
+  const unbound = new GatewayConnection({ endpoint: createHostEndpointResolver(unboundConfig,
+    async () => { assert.fail("no legacy probe"); }, (options) => discoverOfficialDesktopHostEndpoint(dependencies, options)),
+    getConnectToken: () => token, timeoutMs: 2_000 });
+  const unowned = new GatewayConnection({ endpoint: createHostEndpointResolver(config,
+    async () => { assert.fail("no legacy probe"); }, (options) => discoverOfficialDesktopHostEndpoint({ ...dependencies,
+      listListeners: async () => [{ pid: 999, address: "127.0.0.1", port: Number(new URL(intended.baseUrl).port) },
+        { pid: 102, address: "127.0.0.1", port: Number(new URL(other.baseUrl).port) }] }, options)),
+    getConnectToken: () => token, connectTokenOrigin: config.connectTokenOrigin, timeoutMs: 2_000 });
+  try {
+    await assert.rejects(unbound.connect(), { code: "transport_failure",
+      diagnostic: { stage: "candidate-selection", reason: "ambiguous_desktop_host" } });
+    await assert.rejects(unowned.connect(), { code: "auth_rejected",
+      diagnostic: { stage: "origin-binding", reason: "authorized_origin_not_found" } });
+    assert.equal(intended.requests.length, 0);
+    assert.equal(other.requests.length, 0);
+    assert.equal(unbound.endpointSnapshot().resolutionEpoch, 0);
+    assert.equal(unowned.endpointSnapshot().resolutionEpoch, 0);
+
+    assert.equal((await client.connect()).clientId, "fixture-peer");
+    await client.call("session/list", { _request: {} }, z.object({ items: z.array(z.unknown()) }));
+    assert.equal(intended.requests.filter((r) => r.path.startsWith("/connect?")).length, 1);
+    assert.equal(intended.sockets.clients.size, 1);
+    assert.equal(other.requests.length, 0);
+    assert.equal(other.sockets.clients.size, 0);
+    assert.equal(client.endpointSnapshot().resolutionEpoch, 1);
+    assert.equal(client.endpointSnapshot().source, "macos-process-listener");
+  } finally { client.close(); unbound.close(); unowned.close(); await intended.close(); await other.close(); }
+});
+
+test("Gateway distinguishes authorization input, origin binding, HTTP and WebSocket failures safely", async () => {
+  const host = await gatewayFixture();
+  try {
+    for (const [code, stage, make] of [
+      ["auth_required", "authorization-input", () => host.connection(() => undefined)],
+      ["auth_rejected", "origin-binding", () => host.connection(undefined, undefined, "http://127.0.0.1:1")],
+      ["auth_rejected", "http-connect", () => { host.setConnectStatus(403); return host.connection(); }],
+      ["peer_conflict", "websocket-connect", () => { host.setConnectStatus(302); host.setSocketStatus(409); return host.connection(); }],
+    ] as const) {
+      const client = make();
+      try {
+        await assert.rejects(client.connect(), (error: unknown) => {
+          assert.ok(error instanceof GatewayConnectionError);
+          assert.equal(error.code, code);
+          assert.deepEqual(error.diagnostic, { stage, reason: code });
+          const safe = JSON.stringify(error);
+          for (const secret of [token, host.cookie, "127.0.0.1", new URL(host.baseUrl).port]) assert.equal(safe.includes(secret), false);
+          return true;
+        });
+      } finally { client.close(); }
+    }
+  } finally { await host.close(); }
+});
+
+test("Gateway preserves listener-query failures and sanitizes unknown resolver and HTTP errors", async () => {
+  for (const stage of ["listener-query", "discovery", "http-connect"] as const) {
+    let requests = 0;
+    const privateMessage = `${token} private-path http://127.0.0.1:24001`;
+    const client = new GatewayConnection({
+      endpoint: { mode: "desktop-auto", resolve: async () => {
+        if (stage === "discovery") throw new Error(privateMessage);
+        if (stage === "listener-query") return discoverOfficialDesktopHostEndpoint({ platform: "darwin",
+          listProcesses: async () => [{ pid: 101, name: "DeepSeek Harness", executablePath: "/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness" }],
+          listListeners: async () => { throw new Error(privateMessage); } });
+        return { baseUrl: "http://127.0.0.1:24001", source: "macos-process-listener" };
+      } }, getConnectToken: () => token, timeoutMs: 1_000,
+      fetchImpl: async () => { requests++; throw new Error(privateMessage); },
+    });
+    try {
+      await assert.rejects(client.connect(), (error: unknown) => {
+        assert.ok(error instanceof GatewayConnectionError);
+        assert.equal(error.code, "transport_failure");
+        assert.deepEqual(error.diagnostic, { stage, reason: stage === "listener-query" ? "listener_query_failed" : "transport_failure" });
+        assert.equal(error.cause, undefined);
+        for (const value of [token, "private-path", "127.0.0.1", "24001"]) assert.equal(JSON.stringify(error).includes(value), false);
+        return true;
+      });
+      assert.equal(requests, stage === "http-connect" ? 1 : 0);
+    } finally { client.close(); }
+  }
+});
 
 test("Gateway exchanges an explicit token once, owns one API socket, and sends named RPC arguments", async () => {
   const host = await gatewayFixture();

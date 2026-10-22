@@ -2,7 +2,7 @@ import { isDeepStrictEqual } from "node:util";
 
 import type { BridgeConfig } from "./config.js";
 import { DshRpcError, DshTransportError, getHostEndpointSnapshot } from "./dsh-client.js";
-import { GatewayConnectionError } from "./gateway-connection.js";
+import { GatewayConnectionError, type GatewayFailureDiagnostic } from "./gateway-connection.js";
 import type { EventLedger, LedgerSnapshot } from "./event-ledger.js";
 import type {
   DshApi,
@@ -38,6 +38,7 @@ export interface HostConnectionSnapshot {
   compatibility: "capability-probed" | "untested" | "unknown";
   warning?: string;
   lastError?: string;
+  diagnostic?: GatewayFailureDiagnostic;
   description?: DshHostDescription;
   capabilities: {
     unaryRpc: boolean;
@@ -618,13 +619,16 @@ export class DshConnectionManager implements DshConnection {
     for (const [sessionId, snapshot] of this.queues) {
       this.queues.set(sessionId, { ...snapshot, known: false, stale: true });
     }
+    const { diagnostic: _previousDiagnostic, ...previousState } = this.state;
     this.setState({
-      ...this.state,
+      ...previousState,
       availability: error instanceof GatewayConnectionError &&
         (error.code === "auth_required" || error.code === "auth_rejected" || error.code === "unsupported_protocol" || error.code === "peer_conflict")
         ? error.code : "host_unreachable",
       disconnectedAt: new Date().toISOString(),
       lastError: errorText(error),
+      ...(error instanceof GatewayConnectionError && error.diagnostic !== undefined
+        ? { diagnostic: { stage: error.diagnostic.stage, reason: error.diagnostic.reason } } : {}),
     });
     if (error instanceof DshRpcError) {
       await Promise.all(

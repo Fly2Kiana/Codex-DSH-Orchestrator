@@ -14,7 +14,8 @@ export function createHostEndpointResolver(
       mode: "desktop-auto",
       resolve: async () => {
         const resolution = config.hostProtocol === "gateway"
-          ? await discoverOfficialDesktop() : await discoverDesktop(Math.min(config.requestTimeoutMs, 5_000));
+          ? await discoverOfficialDesktop(config.connectTokenOrigin === undefined ? {} : { authorizedOrigin: config.connectTokenOrigin })
+          : await discoverDesktop(Math.min(config.requestTimeoutMs, 5_000));
         return { baseUrl: resolution.baseUrl, source: resolution.source };
       },
     };

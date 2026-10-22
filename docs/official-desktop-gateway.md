@@ -85,7 +85,12 @@ are attempted. Native subprocesses receive only a fixed non-credential OS enviro
 
 The bridge retains automatic Host discovery. `DSH_CONNECT_ORIGIN` is an
 authorization constraint, **not** a static `DSH_HOST_URL`: a resolved origin
-mismatch rejects before sending `/connect`. Host restart requires a new capture
+mismatch rejects before sending `/connect`. In official `desktop-auto` mode it
+also narrows the OS-confirmed owned loopback candidates to an exact origin
+match. It cannot substitute for process/listener inspection or select an
+unobserved/unowned endpoint. No match rejects authorization; without a binding,
+multiple candidates still refuse discovery. IPv4 and IPv6 origins are distinct.
+Host restart requires a new capture
 and a newly launched caller; no stale-token fallback or caller restart is
 automatic. Existing manually supplied tokens without an origin binding remain
 supported for backwards compatibility.
@@ -100,13 +105,15 @@ official Host admission, or model request has qualified this handoff yet.
 ## Connection and supervision
 
 - Windows discovery recognizes the exact `DeepSeek Harness` executable and only
-  its owned loopback listener. More than one candidate is an error. Discovery is
+  its owned loopback listeners. More than one candidate without a unique
+  authorization-bound match is an error. Discovery is
   not protocol verification and never scans arbitrary ports or exchanges tokens.
 - macOS official discovery recognizes the packaged `DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness`
   path, including user-installed or translocated locations, and excludes helper
   bundles/lookalikes. System `/usr/sbin/lsof` is restricted to those exact PIDs,
-  numeric TCP listening sockets and loopback addresses. More than one origin,
-  malformed metadata, missing tools or failed inspection refuses discovery;
+  numeric TCP listening sockets and loopback addresses. Discovery refuses
+  multiple origins without a unique authorization-bound match, malformed
+  metadata, missing tools or failed inspection;
   there is no global socket query, port scan, authentication probe or sudo fallback.
   Path/process identity is not application code-signature verification. Legacy
   third-party Desktop automatic discovery remains Windows-only; Darwin setup
@@ -119,6 +126,16 @@ official Host admission, or model request has qualified this handoff yet.
   protocol fallback. Network observation may reconnect, but writes are never
   replayed internally after a lost response. Missing/method-incompatible RPC
   endpoints are protocol errors, not reconnectable network outages.
+- Connection failures expose an optional `connection.diagnostic` with fixed
+  `stage` and `reason` codes only. Discovery distinguishes process queries,
+  process matching, listener queries and candidate selection; Gateway admission
+  distinguishes authorization input, origin binding, HTTP and WebSocket opening.
+  Native output, underlying exceptions, paths, PIDs, addresses, ports and tokens
+  are not copied into these diagnostics. `host_unreachable` alone does not prove
+  a network fault: discovery can fail before any request. A query failure is not
+  evidence of zero processes/listeners or proof of a particular permission issue.
+  A subsequent unrelated failure or successful connection clears the old
+  diagnostic. Legacy discovery and protocol behavior are unchanged.
 - Named Gateway RPCs map to the existing caller tools. Prompt correlation uses
   the Gateway's durable `requestId`. History pages use a cut obtained from a
   verified follow opening, not an invented cursor or unbounded polling.
