@@ -215,7 +215,7 @@ function createCodexOperation(options: RenderMcpConfigOptions & { replace: boole
     command: options.nodePath,
     args: [options.entryPath],
     env: buildEnv(options),
-    ...(options.hostProtocol === "gateway" ? { envVars: ["DSH_CONNECT_TOKEN"] } : {}),
+    ...(options.hostProtocol === "gateway" ? { envVars: ["DSH_CONNECT_TOKEN", "DSH_CONNECT_ORIGIN"] } : {}),
     humanApproval: {
       toolName: "dsh_resolve_approval",
       mode: "human-prompt",

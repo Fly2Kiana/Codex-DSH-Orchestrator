@@ -84,6 +84,17 @@ test("official Gateway is opt-in and doctor never creates an authenticated API P
   } finally { await fs.rm(home, { recursive: true, force: true }); }
 });
 
+test("Gateway config carries only an origin binding, never the authorization itself", () => {
+  const config = loadConfig({ DSH_HOST_PROTOCOL: "gateway", DSH_HOST_MODE: "desktop-auto",
+    DSH_CONNECT_ORIGIN: "http://127.0.0.1:45678", DSH_CONNECT_TOKEN: "synthetic-secret" });
+  assert.equal(config.connectTokenOrigin, "http://127.0.0.1:45678");
+  assert.equal(config.hostMode, "desktop-auto");
+  assert.equal(config.hostUrl, "http://127.0.0.1:3080");
+  assert.equal(JSON.stringify(config).includes("synthetic-secret"), false);
+  assert.throws(() => loadConfig({ DSH_HOST_PROTOCOL: "gateway", DSH_CONNECT_ORIGIN: "http://127.0.0.1/?token=synthetic-secret" }),
+    (error) => error instanceof Error && !error.message.includes("synthetic-secret"));
+});
+
 test("doctor separates CLI and host product versions and capability-probes without writes", async () => {
   const api = new FakeDshApi();
   api.description = { version: "0.0.1", cwd: "/tmp", attachedSessions: 0, canOpenPath: true };

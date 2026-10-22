@@ -18,17 +18,73 @@ origin. Existing MCP/Skill conflicts still require separate explicit replacement
 flags. Merely developing the adapter does not authorize replacing an installation.
 
 The generated Codex block selects `DSH_HOST_PROTOCOL="gateway"`, keeps human
-approval prompts, and forwards the **name** `DSH_CONNECT_TOKEN` with `env_vars`.
-It never stores a token value in TOML. The operator must supply a supported Host
+approval prompts, and forwards the **names** `DSH_CONNECT_TOKEN` and
+`DSH_CONNECT_ORIGIN` with `env_vars`. It never stores a token value in TOML. The operator must supply a supported Host
 launch token through the environment of the process launching the bridge.
 Runtime-only `DSH_CONNECT_TOKEN_ENV` can name a different input variable, but the
 setup command intentionally uses the default name. Do not put token values into
 command arguments, prompts, source, screenshots, logs, or version control.
 
-Obtaining an operator-supported launch credential from an actual Desktop
-installation remains a live-qualification prerequisite. The bridge does not
+Operator-authorized Windows startup-output capture has received the official
+Desktop launch authorization in memory. This is not authentication or a live
+Codex integration test. The bridge does not
 extract it from Desktop memory, IPC, credential files, or browser cookies. A
 connection token is not a provider API key.
+
+## Local in-memory caller handoff (opt-in, not installed)
+
+`dist/authorized-caller.js` consumes only an explicitly supplied, private startup
+stdout pipe belonging to an operator-started Desktop. It never launches Desktop,
+opens a credential service, reads a saved log, changes an installed MCP/Skill,
+or obtains credentials through process discovery. It accepts no token argument
+or token-file option. Its inert help is:
+
+```sh
+node dist/authorized-caller.js --help
+```
+
+The operator interface is `--caller <absolute-trusted-executable> [-- <args...>]`,
+with the startup pipe on stdin. A separately reviewed startup receiver must feed
+that pipe directly; do not paste the startup URL into a terminal or chat, use
+`tee`, redirect it to a file, or expose raw Desktop stderr. The temporary
+operational receiver used during investigation is not installed integration.
+
+The capture validates one official loopback HTTP root announcement and its
+32-byte/base64url launch token. Startup input is limited to 256 KiB total and
+8 KiB per line, with a 90-second deadline. Timeout, cancellation, malformed
+input, and source closure fail closed without destroying the Desktop-owned
+pipe. A ready handoff is opaque and single-use, including after a failed child
+launch. Source closure or cancellation revokes an unused handoff.
+
+Only the newly spawned trusted caller receives `DSH_CONNECT_TOKEN`, its bound
+`DSH_CONNECT_ORIGIN`, and the default input-variable name in its process
+environment. The parent environment and system/user environment settings are
+not changed. The token is never added to arguments, status messages, errors,
+TOML, or a coordination ledger. Caller stdin is **ignored**, not inherited from
+the startup stream; Desktop output must not become a Codex prompt. Caller output
+belongs to the trusted caller. Only GUI-style caller launching is qualified by
+this interface; it is not an interactive CLI stdin passthrough.
+
+The Windows CLI refuses an already-running same-name caller, both before capture
+and before launch. Quit Codex normally at a separately approved installation
+checkpoint before using it; single-instance forwarding does not reliably refresh
+an existing process environment. A process-start race and actual packaged Codex
+environment inheritance remain live-qualification items, not proven by tests.
+The command never kills a caller or Desktop to resolve a conflict.
+
+The bridge retains automatic Host discovery. `DSH_CONNECT_ORIGIN` is an
+authorization constraint, **not** a static `DSH_HOST_URL`: a resolved origin
+mismatch rejects before sending `/connect`. Host restart requires a new capture
+and a newly launched caller; no stale-token fallback or caller restart is
+automatic. Existing manually supplied tokens without an origin binding remain
+supported for backwards compatibility.
+
+Process environments are not a sandbox. The selected caller, its plugins/child
+processes, same-user debugging tools, and administrators must be trusted. This
+helper does not protect against hostile code in that environment, OS crash dumps,
+or a caller deliberately dumping its environment. Tests use synthetic tokens and
+real fake Node callers plus a mock Gateway only. No actual Codex restart,
+official Host admission, or model request has qualified this handoff yet.
 
 ## Connection and supervision
 
@@ -105,9 +161,11 @@ The Gateway runtime reports a separate `testedProtocolContract`; its
 `testedAgainstDshVersion` is `null`, not the legacy `0.1.0-rc.6` qualification.
 An operator-declared version is not promoted into verified compatibility.
 
-The current queue-compatibility checkpoint passes build and 245 deterministic tests on
-Windows with Node `26.7.0`. Package dry-run contains 107 expected entries and
-no runtime credentials or maintenance state. CI includes Node 22/24/26 on
+The previous queue-compatibility checkpoint passed build and 245 deterministic tests on
+Windows with Node `26.7.0`. Its package dry-run contained 107 expected entries and
+no runtime credentials or maintenance state. The local handoff adds separately
+verified regression tests; do not substitute the prior checkpoint's results for
+its current validation. CI includes Node 22/24/26 on
 Ubuntu/Windows/macOS; a matrix declaration alone is not a successful CI result.
 These checks use synthetic HTTP/WebSocket Hosts, never inference providers.
 

@@ -4,7 +4,8 @@ import { createServer } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
 
 /** Synthetic official Gateway boundary. No provider or real credentials. */
-export async function startMockGatewayHost(options: { socketStatus?: number; rpcStatus?: number; eventAfterReady?: unknown } = {}) {
+export async function startMockGatewayHost(options: { socketStatus?: number; rpcStatus?: number; eventAfterReady?: unknown;
+  connectToken?: string } = {}) {
   let cookie = "";
   let connectCount = 0;
   const requests: Array<{ method: string; rpcId: string; args: Record<string, any> }> = [];
@@ -12,7 +13,7 @@ export async function startMockGatewayHost(options: { socketStatus?: number; rpc
   const errors = new Map<string, { code: string; message: string; details: unknown }>();
   const streams: Array<{ socket: WebSocket; streamId: string; endpoint: string; args: Record<string, any> }> = [];
   const server = createServer(async (req, res) => {
-    if (req.url === "/connect?token=fixture&interactions=answer") {
+    if (req.url === `/connect?token=${options.connectToken ?? "fixture"}&interactions=answer`) {
       connectCount++;
       res.writeHead(302, { location: "./api/remote.mux", "set-cookie": `${cookie}; Path=/; HttpOnly; SameSite=Strict` }).end();
       return;

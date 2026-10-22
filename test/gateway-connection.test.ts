@@ -63,11 +63,13 @@ async function gatewayFixture() {
   assert.ok(address !== null && typeof address === "object");
   const baseUrl = `http://127.0.0.1:${address.port}`;
   cookie = `dsh-auth-${createHash("sha256").update(new URL(baseUrl).host).digest("base64url")}=v2.synthetic.signature`;
-  const connection = (getConnectToken: () => string | undefined = () => token, timeoutMs = 1_000) => new GatewayConnection({
+  const connection = (getConnectToken: () => string | undefined = () => token, timeoutMs = 1_000,
+    connectTokenOrigin?: string) => new GatewayConnection({
     endpoint: { mode: "static", configuredBaseUrl: baseUrl,
       resolve: async () => ({ baseUrl, source: "configured" }) },
     getConnectToken,
     timeoutMs,
+    ...(connectTokenOrigin === undefined ? {} : { connectTokenOrigin }),
   });
   return { requests, opens, sockets, connection, cookie,
     setConnectStatus: (value: number) => { connectStatus = value; },
@@ -108,6 +110,16 @@ test("Gateway exchanges an explicit token once, owns one API socket, and sends n
       method: "session/list", payload: { args: { _request: {} } } });
     assert.equal(JSON.stringify(client).includes(token), false);
     assert.equal(JSON.stringify(client).includes(cookie), false);
+  } finally { client.close(); await host.close(); }
+});
+
+test("Gateway never sends a startup credential to an origin other than its bound Host", async () => {
+  const host = await gatewayFixture();
+  const client = host.connection(undefined, undefined, "http://127.0.0.1:1");
+  try {
+    await assert.rejects(client.connect(), { code: "auth_rejected" });
+    assert.equal(host.requests.length, 0);
+    assert.equal(host.sockets.clients.size, 0);
   } finally { client.close(); await host.close(); }
 });
 

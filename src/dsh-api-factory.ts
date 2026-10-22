@@ -11,5 +11,6 @@ export function createDshApi(config: BridgeConfig, env: NodeJS.ProcessEnv = proc
   if (config.hostProtocol !== "gateway") return new DshClient(endpoint, config.requestTimeoutMs);
   const tokenEnv = config.connectTokenEnv ?? "DSH_CONNECT_TOKEN";
   return new GatewayDshClient(new GatewayConnection({ endpoint, timeoutMs: config.requestTimeoutMs,
+    ...(config.connectTokenOrigin === undefined ? {} : { connectTokenOrigin: config.connectTokenOrigin }),
     getConnectToken: () => env[tokenEnv] }), config.requestTimeoutMs);
 }

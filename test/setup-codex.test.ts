@@ -41,9 +41,10 @@ const desktopAutoBlock = renderMcpConfig({
 test("official Gateway setup forwards only a named token environment variable and keeps human approval", () => {
   const block = renderMcpConfig({ nodePath: "/node", entryPath: "/bridge/dist/index.js", hostMode: "desktop-auto", hostProtocol: "gateway" });
   assert.match(block, /DSH_HOST_PROTOCOL = "gateway"/);
-  assert.match(block, /env_vars = \["DSH_CONNECT_TOKEN"\]/);
+  assert.match(block, /env_vars = \["DSH_CONNECT_TOKEN", "DSH_CONNECT_ORIGIN"\]/);
   assert.match(block, /approval_mode = "prompt"/);
   assert.equal(block.includes("DSH_CONNECT_TOKEN ="), false);
+  assert.equal(block.includes("DSH_CONNECT_ORIGIN ="), false);
   assert.equal(parseSetupArgs(["--gateway", "--desktop-auto"]).gateway, true);
   assert.throws(() => parseSetupArgs(["--gateway"]), /--desktop-auto or --host/);
 });

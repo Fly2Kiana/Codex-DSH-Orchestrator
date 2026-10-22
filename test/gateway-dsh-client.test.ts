@@ -11,6 +11,20 @@ import { GatewayConnection } from "../src/gateway-connection.js";
 import { GatewayDshClient } from "../src/gateway-dsh-client.js";
 import { getDshUnaryMetadata } from "../src/dsh-types.js";
 import { startMockGatewayHost } from "./support/mock-gateway-host.js";
+import { createDshApi } from "../src/dsh-api-factory.js";
+import { loadConfig } from "../src/config.js";
+
+test("Gateway factory preserves caller startup origin binding before any credential is sent", async () => {
+  const host = await startMockGatewayHost();
+  const env = { DSH_HOST_PROTOCOL: "gateway", DSH_HOST_URL: host.baseUrl,
+    DSH_CONNECT_TOKEN: "fixture", DSH_CONNECT_ORIGIN: "http://127.0.0.1:1" };
+  const api = createDshApi(loadConfig(env), env);
+  try {
+    await assert.rejects(api.hostDescribe(), { code: "auth_rejected" });
+    assert.equal(host.connectCount, 0);
+    assert.equal(host.requests.length, 0);
+  } finally { api.close?.(); await host.close(); }
+});
 
 test("official session adapter preserves create/model/prompt contracts and durable prompt correlation", async () => {
   const host = await startMockGatewayHost();

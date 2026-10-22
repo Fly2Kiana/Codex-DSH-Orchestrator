@@ -26,6 +26,8 @@ export interface GatewayConnectionOptions {
   endpoint: HostEndpointResolver;
   /** Explicit operator input only; never a credential-store or browser-cookie lookup. */
   getConnectToken: () => string | undefined;
+  /** Startup credential is valid only for this origin; never a discovery override. */
+  connectTokenOrigin?: string;
   timeoutMs: number;
   fetchImpl?: typeof fetch;
 }
@@ -145,6 +147,7 @@ interface Peer {
 export class GatewayConnection {
   #endpoint: HostEndpointResolver;
   #getToken: () => string | undefined;
+  #tokenOrigin: string | undefined;
   #timeoutMs: number;
   #fetch: typeof fetch;
   #peer: Peer | undefined;
@@ -155,6 +158,7 @@ export class GatewayConnection {
   constructor(options: GatewayConnectionOptions) {
     this.#endpoint = options.endpoint;
     this.#getToken = options.getConnectToken;
+    this.#tokenOrigin = options.connectTokenOrigin === undefined ? undefined : originUrl(options.connectTokenOrigin).origin;
     this.#timeoutMs = options.timeoutMs;
     this.#fetch = options.fetchImpl ?? globalThis.fetch;
     this.#endpointSnapshot = { mode: options.endpoint.mode, resolutionEpoch: 0,
@@ -302,6 +306,7 @@ export class GatewayConnection {
       if (!token?.trim()) throw failure("auth_required");
       const resolved = await this.#endpoint.resolve();
       const origin = originUrl(resolved.baseUrl);
+      if (this.#tokenOrigin !== undefined && origin.origin !== this.#tokenOrigin) throw failure("auth_rejected");
       this.#endpointSnapshot = { ...this.#endpointSnapshot, resolvedBaseUrl: origin.origin, source: resolved.source,
         resolutionEpoch: this.#endpointSnapshot.resolutionEpoch + 1 };
       if (this.#disposed || signal?.aborted) throw failure("aborted");
