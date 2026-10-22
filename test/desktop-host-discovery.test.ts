@@ -31,9 +31,52 @@ test("official Desktop discovery refuses missing, ambiguous and unsupported cand
   const process = { pid: 101, name: "DeepSeek Harness", executablePath: "C:\\Apps\\DeepSeek Harness.exe" };
   const dependencies = { platform: "win32" as const, listProcesses: async () => [process],
     listListeners: async () => [{ pid: 101, address: "127.0.0.1", port: 24001 }] };
-  await assert.rejects(discoverOfficialDesktopHostEndpoint({ ...dependencies, platform: "darwin" }), { code: "unsupported_platform" });
+  await assert.rejects(discoverOfficialDesktopHostEndpoint({ ...dependencies, platform: "linux" }), { code: "unsupported_platform" });
   await assert.rejects(discoverOfficialDesktopHostEndpoint({ ...dependencies, listProcesses: async () => [] }), { code: "desktop_not_running" });
   await assert.rejects(discoverOfficialDesktopHostEndpoint({ ...dependencies, listListeners: async () => [] }), { code: "desktop_host_not_found" });
+  await assert.rejects(discoverOfficialDesktopHostEndpoint({ ...dependencies, listListeners: async () => [
+    { pid: 101, address: "127.0.0.1", port: 24001 }, { pid: 101, address: "::1", port: 24002 },
+  ] }), { code: "ambiguous_desktop_host" });
+});
+
+test("official macOS discovery scopes listener inspection to the packaged app and never probes a Host", async () => {
+  let inspectedPids: number[] = [];
+  const endpoint = await discoverOfficialDesktopHostEndpoint({
+    platform: "darwin",
+    listProcesses: async () => [
+      { pid: 101, name: "DeepSeek Harness", executablePath: "/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness" },
+      { pid: 102, name: "DeepSeek Harness", executablePath: "/Applications/Other.app/Contents/MacOS/DeepSeek Harness" },
+      { pid: 103, name: "DeepSeek Harness", executablePath: "/tmp/DeepSeek Harness" },
+      { pid: 104, name: "DeepSeek Harness Helper", executablePath: "/Applications/DeepSeek Harness.app/Contents/Frameworks/Helper.app/Contents/MacOS/Helper" },
+    ],
+    listListeners: async (pids: number[]) => {
+      inspectedPids = pids;
+      return [
+        { pid: 101, address: "127.0.0.1", port: 24001 },
+        { pid: 101, address: "0.0.0.0", port: 24002 },
+        { pid: 102, address: "127.0.0.1", port: 24003 },
+      ];
+    },
+  });
+  assert.deepEqual(inspectedPids, [101]);
+  assert.deepEqual(endpoint, { baseUrl: "http://127.0.0.1:24001", source: "macos-process-listener",
+    desktopPids: [101], candidateCount: 1, protocolVerified: false });
+});
+
+test("official macOS discovery accepts relocated bundles but refuses lookalikes and ambiguous origins", async () => {
+  const app = { pid: 101, name: "DeepSeek Harness",
+    executablePath: "/private/var/folders/example/AppTranslocation/ABC/d/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness" };
+  const dependencies = { platform: "darwin" as const, listProcesses: async () => [app],
+    listListeners: async () => [{ pid: 101, address: "::1", port: 24001 }] };
+  assert.equal((await discoverOfficialDesktopHostEndpoint(dependencies)).baseUrl, "http://[::1]:24001");
+  for (const path of ["/tmp/DeepSeek Harness", "/tmp/Other.app/Contents/MacOS/DeepSeek Harness",
+    "/tmp/DeepSeek Harness.app/../Other.app/Contents/MacOS/DeepSeek Harness",
+    "/tmp/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness --argument"]) {
+    await assert.rejects(discoverOfficialDesktopHostEndpoint({ ...dependencies,
+      listProcesses: async () => [{ ...app, executablePath: path }] }), { code: "desktop_not_running" });
+  }
+  await assert.rejects(discoverOfficialDesktopHostEndpoint({ ...dependencies, listListeners: async () => [] }),
+    { code: "desktop_host_not_found" });
   await assert.rejects(discoverOfficialDesktopHostEndpoint({ ...dependencies, listListeners: async () => [
     { pid: 101, address: "127.0.0.1", port: 24001 }, { pid: 101, address: "::1", port: 24002 },
   ] }), { code: "ambiguous_desktop_host" });

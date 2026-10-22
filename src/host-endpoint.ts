@@ -1,5 +1,5 @@
 import type { BridgeConfig } from "./config.js";
-import { discoverRunningWindowsDesktopHost, discoverRunningWindowsOfficialDesktopHost } from "./desktop-host-discovery.js";
+import { discoverRunningWindowsDesktopHost, discoverRunningOfficialDesktopHost } from "./desktop-host-discovery.js";
 import type { HostEndpointResolver } from "./dsh-client.js";
 
 type DesktopDiscover = typeof discoverRunningWindowsDesktopHost;
@@ -7,7 +7,7 @@ type DesktopDiscover = typeof discoverRunningWindowsDesktopHost;
 export function createHostEndpointResolver(
   config: BridgeConfig,
   discoverDesktop: DesktopDiscover = discoverRunningWindowsDesktopHost,
-  discoverOfficialDesktop: typeof discoverRunningWindowsOfficialDesktopHost = discoverRunningWindowsOfficialDesktopHost,
+  discoverOfficialDesktop: typeof discoverRunningOfficialDesktopHost = discoverRunningOfficialDesktopHost,
 ): HostEndpointResolver {
   if (config.hostMode === "desktop-auto") {
     return {

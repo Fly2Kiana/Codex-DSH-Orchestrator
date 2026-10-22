@@ -58,7 +58,7 @@ type WebSocketFactory = (url: string) => WebSocketLike;
 
 export interface HostEndpointResolution {
   baseUrl: string;
-  source: "configured" | "windows-process-listener";
+  source: "configured" | "windows-process-listener" | "macos-process-listener";
 }
 
 export interface HostEndpointResolver {
