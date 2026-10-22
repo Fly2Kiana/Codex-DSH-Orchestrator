@@ -865,6 +865,9 @@ test("high-frequency assistant content-stream progress is dropped from the persi
     const turnStartSeq = 5 + HISTORY_CHUNKS;
     const userEventSeq = turnStartSeq + 1;
     const liveSeqBase = userEventSeq + 1;
+    // Ledger completion can precede the separately scheduled initial history
+    // readiness notification. Exclude that revision from the live-frame count.
+    await eventually(() => manager.snapshot().capabilities.historyReconciliation);
     const beforeTurn2 = await ledger.snapshot(task.taskId);
     const revisionBeforeTurn2 = manager.snapshot().revision;
     host.sendMux({ type: "session/event", sessionId: "root-session", event: { type: "turn/start", seq: turnStartSeq, time: 60, data: { turn: 2 } } });

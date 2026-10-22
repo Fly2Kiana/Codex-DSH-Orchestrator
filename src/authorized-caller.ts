@@ -24,15 +24,19 @@ async function windowsCallerIsRunning(executable: string): Promise<boolean> {
   const script = "$ErrorActionPreference='Stop'; " +
     "$dshFound=@(Get-Process -Name $env:DSH_HANDOFF_CALLER_NAME -ErrorAction SilentlyContinue); " +
     "if($dshFound.Count -gt 0){[Console]::Write('running')}else{[Console]::Write('stopped')}";
+  // PowerShell's cmdlet/module initialization needs its normal OS context on
+  // clean runners. Keep only these OS variables, never the caller's credentials.
+  const env: NodeJS.ProcessEnv = { SystemRoot: process.env.SystemRoot,
+    DSH_HANDOFF_CALLER_NAME: win32.basename(executable, win32.extname(executable)) };
+  for (const key of ["WINDIR", "PATH", "TEMP", "TMP", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "PSModulePath"]) {
+    if (process.env[key] !== undefined) env[key] = process.env[key];
+  }
   try {
     const { stdout } = await promisify(execFile)(win32.join(process.env.SystemRoot,
       "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
     ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], {
-      // Fresh Windows runners may cold-start Windows PowerShell/.NET slowly.
-      // Bound the OS-only query without treating a timeout as "not running".
-      timeout: 30_000, maxBuffer: 1024, windowsHide: true,
-      env: { SystemRoot: process.env.SystemRoot,
-        DSH_HANDOFF_CALLER_NAME: win32.basename(executable, win32.extname(executable)) },
+      // A failed or timed-out OS query must never mean "not running".
+      timeout: 30_000, maxBuffer: 1024, windowsHide: true, env,
     });
     if (stdout.trim() === "running") return true;
     if (stdout.trim() === "stopped") return false;
