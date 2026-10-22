@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { win32 } from "node:path";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
@@ -249,7 +250,7 @@ test("non-byte startup input cannot escape as an uncaught secret-bearing excepti
   } finally { source.end(); await capture.catch(() => undefined); }
 });
 
-test("real CLI refuses an already-running caller without printing the supplied startup secret", async () => {
+test("real CLI refuses an already-running caller without printing the supplied startup secret", async (context) => {
   const child = spawn(process.execPath, ["--import", "tsx", fileURLToPath(new URL("../src/authorized-caller.ts", import.meta.url)),
     "--caller", process.execPath], { stdio: ["pipe", "pipe", "pipe"] });
   let output = "";
@@ -258,6 +259,35 @@ test("real CLI refuses an already-running caller without printing the supplied s
   child.stdin!.end(announcement);
   const [code] = await once(child, "close");
   assert.equal(code, 1);
+  if (process.platform === "win32" && !output.includes("caller_already_running")) {
+    // Failure-only CI evidence: no startup input, raw subprocess output, paths,
+    // environment values, command lines, or operator processes are inspected.
+    for (const mode of ["startup-only", "minimal-open", "minimal-closed", "os-env-closed"]) {
+      const env: NodeJS.ProcessEnv = { SystemRoot: process.env.SystemRoot, DSH_HANDOFF_CALLER_NAME: "node" };
+      if (mode === "os-env-closed") {
+        for (const key of ["WINDIR", "PATH", "TEMP", "TMP", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "PSModulePath"]) {
+          if (process.env[key] !== undefined) env[key] = process.env[key];
+        }
+      }
+      const script = "[Console]::Write('started;'); " + (mode === "startup-only" ? "" :
+        "$ErrorActionPreference='Stop'; $p=@(Get-Process -Name $env:DSH_HANDOFF_CALLER_NAME -ErrorAction SilentlyContinue); " +
+        "if($p.Count -gt 0){[Console]::Write('running')}else{[Console]::Write('stopped')}");
+      const startedAt = Date.now();
+      await new Promise<void>((resolve) => {
+        const probe = execFile(win32.join(process.env.SystemRoot!, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+          ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
+          { env, timeout: 5_000, maxBuffer: 1024, windowsHide: true }, (error, stdout, stderr) => {
+            context.diagnostic(JSON.stringify({ mode, elapsedMs: Date.now() - startedAt,
+              code: error?.code ?? 0, killed: error?.killed ?? false, signal: error?.signal ?? null,
+              started: stdout.startsWith("started;"),
+              knownResult: stdout === "started;running" || stdout === "started;stopped",
+              hasStderr: stderr.length > 0 }));
+            resolve();
+          });
+        if (mode.endsWith("closed")) probe.stdin!.end();
+      });
+    }
+  }
   assert.match(output, process.platform === "win32" ? /caller_already_running/ : /unsupported_platform/);
   assert.equal(output.includes(token), false);
   assert.equal(output.includes(origin), false);
