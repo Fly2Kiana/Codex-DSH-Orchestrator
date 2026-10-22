@@ -28,7 +28,9 @@ async function windowsCallerIsRunning(executable: string): Promise<boolean> {
     const { stdout } = await promisify(execFile)(win32.join(process.env.SystemRoot,
       "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
     ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], {
-      timeout: 5_000, maxBuffer: 1024, windowsHide: true,
+      // Fresh Windows runners may cold-start Windows PowerShell/.NET slowly.
+      // Bound the OS-only query without treating a timeout as "not running".
+      timeout: 30_000, maxBuffer: 1024, windowsHide: true,
       env: { SystemRoot: process.env.SystemRoot,
         DSH_HANDOFF_CALLER_NAME: win32.basename(executable, win32.extname(executable)) },
     });

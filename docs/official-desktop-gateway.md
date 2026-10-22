@@ -66,7 +66,9 @@ belongs to the trusted caller. Only GUI-style caller launching is qualified by
 this interface; it is not an interactive CLI stdin passthrough.
 
 The Windows CLI refuses an already-running same-name caller, both before capture
-and before launch. Quit Codex normally at a separately approved installation
+and before launch. Each OS-only process query has a 30-second upper bound for
+fresh Windows PowerShell/.NET startup; failure or timeout refuses the handoff,
+never proves that the caller is absent, and is not retried. Quit Codex normally at a separately approved installation
 checkpoint before using it; single-instance forwarding does not reliably refresh
 an existing process environment. A process-start race and actual packaged Codex
 environment inheritance remain live-qualification items, not proven by tests.
