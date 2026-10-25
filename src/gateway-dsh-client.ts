@@ -23,7 +23,7 @@ const projectionsSchema = z.object({ kind: z.literal("sequenced"), asOfSeq: z.nu
 const recordSchema = z.object({ type: z.literal("event"), event: dshSessionEventSchema });
 const snapshotSchema = z.object({ type: z.literal("snapshot"), header: z.object({ id: z.string() }).passthrough(),
   cursor: z.number().int().min(-1), records: z.array(recordSchema), hasMore: z.boolean(),
-  projections: z.object({ asOfSeq: z.number().int(), values: z.record(z.unknown()) }) });
+  projections: z.object({ asOfSeq: z.number().int(), values: z.record(z.string(), z.unknown()) }) });
 const pageSchema = z.object({ records: z.array(recordSchema), hasMore: z.boolean() });
 const inboxMessageSchema = z.object({ id: z.string().min(1), role: z.string(), content: z.array(z.unknown()) }).passthrough();
 const inboxSchema = z.object({ "next-turn": z.array(inboxMessageSchema), "next-step": z.array(inboxMessageSchema) }).strict();
@@ -260,7 +260,7 @@ export class GatewayDshClient implements DshApi {
       return;
     }
     if (frame.type !== "waterfall") return; // Do not forward unrelated account/settings notifications.
-    const invocation = z.object({ event: z.string(), eventId: z.string().min(1), agentId: z.string().min(1), request: z.record(z.unknown()) }).safeParse(frame);
+    const invocation = z.object({ event: z.string(), eventId: z.string().min(1), agentId: z.string().min(1), request: z.record(z.string(), z.unknown()) }).safeParse(frame);
     if (!invocation.success) throw new GatewayConnectionError("unsupported_protocol", "invalid forwarded interaction");
     const { event, eventId, agentId: sessionId, request } = invocation.data;
     if (generation.interactions.has(eventId)) return;

@@ -54,7 +54,7 @@ const frameSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("item"), streamId: z.string().min(1), value: z.unknown().optional() }).strict(),
   z.object({ type: z.literal("end"), streamId: z.string().min(1) }).strict(),
   z.object({ type: z.literal("error"), streamId: z.string().min(1),
-    error: z.object({ code: z.string(), message: z.string(), details: z.record(z.unknown()) }).strict() }).strict(),
+    error: z.object({ code: z.string(), message: z.string(), details: z.record(z.string(), z.unknown()) }).strict() }).strict(),
 ]);
 
 class StreamInbox {

@@ -235,6 +235,37 @@ test("Gateway exchanges an explicit token once, owns one API socket, and sends n
   } finally { client.close(); await host.close(); }
 });
 
+test("Gateway validates stream-error detail dictionaries without exposing Host content", { timeout: 5_000 }, async () => {
+  for (const [details, expectedCode] of [
+    [{ nested: { values: [null, 1, true] }, message: token }, "rpc_rejected"],
+    [[token], "unsupported_protocol"],
+  ] as const) {
+    const host = await gatewayFixture();
+    const client = host.connection();
+    try {
+      await client.connect();
+      const socket = [...host.sockets.clients][0]!;
+      const opened = once(socket, "message");
+      const pending = client.stream("session/follow", { request: {} }, AbortSignal.timeout(2_000)).next();
+      const rejected = assert.rejects(pending, (error: unknown) => {
+        assert.ok(error instanceof GatewayConnectionError);
+        assert.equal(error.code, expectedCode);
+        assert.equal(`${error.stack} ${JSON.stringify(error)}`.includes(token), false);
+        return true;
+      });
+      const [raw] = await opened;
+      const { streamId } = JSON.parse(String(raw));
+      socket.send(JSON.stringify({ type: "error", streamId,
+        error: { code: "fixture/rejected", message: token, details } }));
+      await rejected;
+      if (expectedCode === "rpc_rejected") {
+        assert.deepEqual((await client.call("session/list", {}, z.object({ items: z.array(z.unknown()) }))).value, { items: [] });
+      }
+      assert.equal(host.requests.filter((item) => item.path.startsWith("/connect?")).length, 1);
+    } finally { client.close(); await host.close(); }
+  }
+});
+
 test("Gateway never sends a startup credential to an origin other than its bound Host", async () => {
   const host = await gatewayFixture();
   const client = host.connection(undefined, undefined, "http://127.0.0.1:1");

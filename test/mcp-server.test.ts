@@ -21,6 +21,62 @@ function parseToolText(result: Awaited<ReturnType<Client["callTool"]>>): Record<
   return JSON.parse(block.text) as Record<string, unknown>;
 }
 
+test("MCP input schemas keep defaults optional and reject invalid calls before contacting the Host", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codex-dsh-mcp-schema-"));
+  const api = new FakeDshApi();
+  api.sessions = [
+    { sessionId: "visible", updatedAt: 1, running: false, blank: false, cwd: home },
+    { sessionId: "blank", updatedAt: 2, running: false, blank: true, cwd: home },
+  ];
+  const ledger = new EventLedger(home);
+  const service = new BridgeService({ hostUrl: "http://127.0.0.1:1", homeDir: home,
+    requestTimeoutMs: 1_000, allowRemoteHost: false }, api, new TaskStore(home), new FakeConnection(ledger), ledger);
+  const server = createMcpServer(service);
+  const client = new Client({ name: "schema-client", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const { tools } = await client.listTools();
+    const delegate = tools.find((tool) => tool.name === "dsh_delegate")!.inputSchema;
+    assert.equal(delegate.type, "object");
+    assert.equal(delegate.additionalProperties, false);
+    assert.deepEqual(delegate.required?.toSorted(), ["cwd", "prompt"]);
+    assert.deepEqual(delegate.properties?.waitSeconds, { type: "integer", minimum: 0, maximum: 30, default: 0 });
+    const attach = tools.find((tool) => tool.name === "dsh_attach_session")!.inputSchema;
+    assert.ok(attach.required?.includes("expectedTitle"), "nullable title must still be supplied");
+    assert.equal(attach.required?.includes("workspaceMode"), false);
+
+    for (const args of [
+      { prompt: "read", cwd: home, waitSeconds: 31 },
+      { prompt: "read", cwd: home, waitSeconds: "0" },
+      { prompt: "read", cwd: home, modelProfile: "invented" },
+      { prompt: "read", cwd: home, unexpected: true },
+      { cwd: home },
+    ]) {
+      const invalid = await client.callTool({ name: "dsh_delegate", arguments: args });
+      assert.equal(invalid.isError, true);
+    }
+    const missingTitle = await client.callTool({ name: "dsh_attach_session",
+      arguments: { sessionId: "visible", expectedUpdatedAt: 1, expectedCwd: home } });
+    assert.equal(missingTitle.isError, true);
+    for (const field of ["sinceCursor", "expectedRevision"]) {
+      const unsafeCounter = await client.callTool({ name: "dsh_followup", arguments: {
+        taskId: "dsh_0123456789ab", prompt: "read", [field]: Number.MAX_SAFE_INTEGER + 1,
+      } });
+      assert.equal(unsafeCounter.isError, true, "coordination counters must remain exactly representable");
+    }
+    assert.equal(api.calls.length, 0, "invalid input must not reach the Host");
+
+    const found = await client.callTool({ name: "dsh_find_sessions", arguments: {} });
+    assert.equal(found.isError, undefined);
+    assert.deepEqual((parseToolText(found).sessions as Array<{ sessionId: string }>).map((item) => item.sessionId), ["visible"]);
+  } finally {
+    await client.close();
+    await server.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("MCP server exposes semantic delegate routing while rejecting arbitrary model arguments", async () => {
   const home = await mkdtemp(join(tmpdir(), "codex-dsh-mcp-"));
   const delegatedCwd = await mkdtemp(join(tmpdir(), "codex-dsh-delegated-"));
