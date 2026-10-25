@@ -2,7 +2,7 @@
 
 **English** | [简体中文](architecture.zh-CN.md)
 
-This document contains the bridge semantics that are intentionally kept out of the user-facing README. It describes the current source-tree behavior; release and compatibility promises remain version-specific.
+This document describes shared coordination semantics and the legacy rc.6 RPC path. The official Windows/macOS adapter's authentication, discovery, queue mapping and capability differences are in [Official Desktop Gateway](official-desktop-gateway.md). Apply protocol-specific details to the selected adapter.
 
 ## Positioning and Host lifecycle
 

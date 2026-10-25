@@ -6,6 +6,20 @@ does not announce an npm publication.
 
 ## Unreleased
 
+- Added an opt-in authenticated official Desktop Gateway adapter with owned
+  loopback discovery on Windows and macOS, in-memory startup authorization,
+  and a caller handoff helper. The operator controls application startup.
+- Added exact-root history/queue reconciliation, sanitized connection diagnostics
+  and current Flash catalog routing with account/API-key separation.
+- Updated MCP SDK to 1.32.0 and Zod to 4.6.7, with scoped transitive security
+  updates and the required Gateway record-schema migration.
+- Added rc.3 catalog refresh, effort and rejection regressions; the Windows
+  Node 26.7.0 source gate passes 293 tests. CI is defined for Node 22/24/26
+  on Ubuntu, Windows and macOS.
+- Updated bilingual setup/Skill guidance and operator startup instructions.
+  The earlier Apple Silicon read-only smoke covers an older adapter build;
+  final-candidate Windows/Mac live acceptance and current vision execution remain pending.
+
 ## 0.1.0-alpha.5 — source release
 
 - Added a bounded visual-routing policy: non-visual routine and difficult work

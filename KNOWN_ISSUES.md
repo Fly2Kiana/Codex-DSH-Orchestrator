@@ -1,40 +1,45 @@
 # Known issues
 
-## Shared coordination ledger can fail on a duplicate cursor
+## Official Desktop qualification
 
-Status: fixed in `0.1.0-alpha.2`.
+The authenticated Gateway has Windows/macOS discovery and startup-handoff support. Current local automated evidence is 293 tests on Windows Node 26.7.0. An earlier Apple Silicon build passed connection and one inherited read-only task; the final dependency tree still needs Windows/Mac live acceptance and same-root follow-up.
 
-A duplicate task cursor was observed when multiple bridge processes, including processes from different builds, shared the same `DSH_BRIDGE_HOME`. The affected task ledger then reported `unrecoverable_gap`; in the observed run, the rejected ledger queue also caused the MCP transport process to exit.
+Gateway doctor leaves admission `not_probed`. A separately approved `dsh_host_status` can exchange authorization and open an API Peer. After changing the installation, confirm the actual MCP entry and Skill content before a smoke test.
 
-The root cause included two unsafe check-then-delete paths. A process that lost the race between creating a lock directory and writing its `owner.json` could delete a replacement lock. Separately, automatic stale-lock reaping could rename and delete a freshly reacquired lock based on an older mtime/PID observation.
+The current rc.3 session catalog omits image modalities. Native vision therefore needs additional capability evidence. Timed questions remain with the Host, subagent-mode discovery is unavailable, and queue refresh relies on explicit observation/preflight. See [Gateway capabilities](docs/official-desktop-gateway.md#models-and-capabilities).
 
-The fixed implementation retries owner writes that lose with `ENOENT` or `EEXIST` without deleting the current lock directory. After a failed `mkdir`, an unexpected owner-write error never removes the current path: the process cannot prove that the still-empty directory is its own attempt (a competitor may have replaced it before writing its `owner.json`), so it fails closed and leaves the path untouched. Automatic stale reaping is disabled and fails closed because Node's portable filesystem APIs cannot atomically compare a stale observation with a later destructive rename. Deterministic regression tests cover lost owner writes, stale observations, preservation of competing owners, and preservation of a competitor's still-empty replacement directory. The doctor does not try to diagnose those historical race paths; it reports only the currently observed state of the known lock locations, and it does so read-only.
+## Shared-ledger duplicate cursor
 
-Upgrade requirement: every bridge process sharing one `DSH_BRIDGE_HOME` must be restarted onto the fixed build. One remaining `0.1.0-alpha.1` process can still race with a fixed process because the old process does not follow the corrected ownership rules.
+Fixed in `0.1.0-alpha.2`.
 
-When upgrading or recovering an affected installation:
+Multiple processes sharing `DSH_BRIDGE_HOME` could produce a duplicate cursor and `unrecoverable_gap`; the rejected ledger queue could then exit the MCP process. Two check-then-delete races let a stale owner observation remove a replacement lock.
 
-- close or restart every Codex task that still runs the previous bridge build;
-- do not run different dsh-Agentlink builds against the same `DSH_BRIDGE_HOME`;
-- give concurrently active build or instance groups separate `DSH_BRIDGE_HOME` directories;
-- preserve a failed bridge home for diagnosis instead of deleting it blindly; use a fresh bridge home to resume new delegations.
+The fix retries owner writes lost with `ENOENT` or `EEXIST` without deleting the current directory. Unexpected owner-write failures preserve the path: ownership cannot be proved after a competitor replaces it. Automatic stale-lock reaping is disabled because portable filesystem APIs cannot atomically compare an old observation with a later destructive rename.
 
-DSH conversation history remains owned by the DSH Web Host. Using a fresh bridge home does not delete DSH sessions, but existing bridge task ids, workspace claims, and task cursors are not automatically migrated.
+When upgrading a shared home, schedule all participating bridge processes onto the compatible build. A remaining alpha.1 process can still violate the corrected locking rules. Keep incompatible or independently managed groups on separate homes.
 
-### Crash-recovery trade-off
+### Crash recovery
 
-The lock is intended for short critical sections on one local filesystem. It has no heartbeat, its PID/mtime observations are not valid on NFS, and the fixed build does not automatically delete an apparently stale lock. A process that is hard-killed while holding a lock can therefore leave an exact lock directory that causes later operations to time out. An unexpected `owner.json` write failure such as `ENOSPC` or `EIO` can also leave an empty fail-closed lock directory, because the bridge cannot prove the directory still belongs to its own attempt. Stop every bridge process using that bridge home, preserve a backup, and inspect the exact owner before any manual cleanup; never delete the bridge home or a broad parent directory blindly.
+Locks cover short critical sections on a local filesystem. They have no heartbeat, and PID/mtime observations are unsuitable for NFS. A hard kill during ownership, or an `ENOSPC`/`EIO` owner-write failure, can leave a directory that blocks later operations.
 
-### Doctor reports fail-closed locks read-only and never cleans them
+Before manual cleanup, stop every bridge process using that home during an agreed window, preserve a backup and inspect the exact directory and ownership. Avoid deleting a whole bridge home. A fresh home allows new delegations but starts new task mappings, claims and cursors; DSH keeps its conversation history.
 
-`npm run doctor` reports only the currently observed structure of each known fail-closed lock location under the bridge home — `claims/registry.lock` and `ledgers/<valid task id>/events.lock`. It reports path/owner presence and filesystem type plus bounded entry observations. It never opens or parses `owner.json`, and never reports its pid, token, `createdAt`, or other contents. These are point-in-time observations, not race-proof ownership or liveness conclusions. Both the ledgers scan and each lock-directory scan stop after a bounded max-plus-one observation and explicitly report truncation. The doctor never creates, deletes, renames, chmods, rewrites, or acquires a lock, never declares one safe to delete, and never auto-cleans one.
+### Read-only lock diagnostics
 
-### Existing large ledgers are not compacted by this patch
+Doctor reports structure at `claims/registry.lock` and `ledgers/<valid task id>/events.lock`: path/owner presence, filesystem types and bounded entry observations. Scans report truncation. It leaves directories intact and does not read `owner.json` content, acquire locks or infer ownership/liveness from a snapshot.
 
-The patch prevents new top-level `session/projection` snapshots and high-frequency assistant stream chunks from inflating the durable ledger; `session/jobs` remains durable, with its payload scrubbed by the existing coordination-only rules. It does not rewrite or compact an existing 5 MB+ ledger. Preserve the old bridge home for inspection. New delegations may use a separate `DSH_BRIDGE_HOME`, but its task ids, cursors, and claims start fresh. DSH `session.history` remains the conversation source of truth; changing bridge home does not delete Host sessions. No automatic cleanup command is provided.
+Windows lock acquisition retries transient `EPERM` within a bounded window and retains persistent permission errors. This does not repair ACLs or authorize deleting a lock.
 
-## Windows reports limited POSIX mode bits
+### Existing large ledgers
 
-Windows access control is ACL-based, and Node.js does not round-trip Unix `0600`, `0640`, or `0700` mode bits there. Files and directories created with those requested modes are commonly reported as `0666` by `stat`. Setup and persistence tests therefore require exact POSIX modes on Unix-like systems and verify Windows' supported representation separately; they do not treat Windows mode bits as an ACL audit.
+Ingestion skips new top-level `session/projection` snapshots and high-frequency assistant chunks; `session/jobs` remains durable with coordination-only payloads. Existing ledgers, including those larger than 5 MB, are not compacted. Preserve them for diagnosis or use a separate home for new work. `session.history` remains the conversation source.
 
-The setup engine still refuses symlinked or non-regular config targets, checks stale snapshots before replacement, creates same-directory backups, and verifies the exact installed content. This portability boundary does not grant broader filesystem access or modify Windows ACLs.
+## Windows file modes and installer paths
+
+Windows uses ACLs, so Node cannot round-trip Unix `0600`, `0640` or `0700` mode bits. `stat` commonly reports `0666`. Tests check supported Windows representations and exact POSIX modes on Unix; this is not an ACL audit.
+
+The installer rejects symlinked directories and non-regular configuration targets, checks stale snapshots and verifies the installed bytes. macOS temp fixtures canonicalize the system temp root before testing this policy; production symlink rejection is unchanged.
+
+## Dependency snapshot
+
+The SDK/Zod migration updates the reviewed lockfile and passed a zero-advisory npm audit snapshot. Audit data changes over time; review the final release tree and dependency alerts again before publication. No automatic `npm audit fix` or permissions change is part of setup.

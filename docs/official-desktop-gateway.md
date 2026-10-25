@@ -1,225 +1,178 @@
-# Official Desktop Gateway adapter
+# Official Desktop Gateway
 
-This adapter targets the official `deepseek-ai/deepseek-harness` release
-`dsh-v0.2.1-rc.2` (`687f282`). It is separate from the legacy rc.6 Host
-adapter. Legacy remains the default; there is no automatic protocol fallback.
-Automated mock-Host qualification is not real Desktop end-to-end qualification.
+The official DeepSeek Harness Desktop uses the authenticated Gateway adapter. Select it with `--gateway`. The legacy rc.6 adapter remains the setup default; protocols are selected explicitly.
 
-## Explicit setup
+The wire reference is `dsh-v0.2.1-rc.2` (`687f282`). The rc.3 source review found the scoped Connection/Gateway contracts unchanged and added synthetic model-catalog regressions. See [Validation](validation.md) for automated and live evidence.
 
-After building a reviewed checkout, preview without installing:
+## Install and preview
 
-```sh
-npm run setup -- --gateway --desktop-auto --dry-run
-```
-
-`--gateway` requires either Windows/macOS `--desktop-auto` or an explicit `--host`
-origin. Existing MCP/Skill conflicts still require separate explicit replacement
-flags. Merely developing the adapter does not authorize replacing an installation.
-
-The generated Codex block selects `DSH_HOST_PROTOCOL="gateway"`, keeps human
-approval prompts, and forwards the **names** `DSH_CONNECT_TOKEN` and
-`DSH_CONNECT_ORIGIN` with `env_vars`. It never stores a token value in TOML. The operator must supply a supported Host
-launch token through the environment of the process launching the bridge.
-Runtime-only `DSH_CONNECT_TOKEN_ENV` can name a different input variable, but the
-setup command intentionally uses the default name. Do not put token values into
-command arguments, prompts, source, screenshots, logs, or version control.
-
-Operator-authorized Windows startup-output capture has received the official
-Desktop launch authorization in memory. This is not authentication or a live
-Codex integration test. The bridge does not
-extract it from Desktop memory, IPC, credential files, or browser cookies. A
-connection token is not a provider API key.
-
-## Local in-memory caller handoff (opt-in, not installed)
-
-`dist/authorized-caller.js` consumes only an explicitly supplied, private startup
-stdout pipe belonging to an operator-started Desktop. It never launches Desktop,
-opens a credential service, reads a saved log, changes an installed MCP/Skill,
-or obtains credentials through process discovery. It accepts no token argument
-or token-file option. Its inert help is:
+Build an approved checkout, then preview:
 
 ```sh
-node dist/authorized-caller.js --help
+npm ci
+npm run check
+npm run setup -- --yes --gateway --desktop-auto --no-preset --dry-run
 ```
 
-The operator interface is `--caller <absolute-trusted-executable> [-- <args...>]`,
-with the startup pipe on stdin. A separately reviewed startup receiver must feed
-that pipe directly; do not paste the startup URL into a terminal or chat, use
-`tee`, redirect it to a file, or expose raw Desktop stderr. The temporary
-operational receiver used during investigation is not installed integration.
-On macOS, select the actual executable inside the trusted caller's `.app/Contents/MacOS/`,
-not the `.app` directory, `open -a`, or a shell wrapper. Direct child-environment
-delivery is the same on both platforms; it does not retrofit a running app or
-prove that the packaged caller forwards that environment to its MCP children.
+Official `--desktop-auto` works on Windows and macOS. A known origin can instead use `--gateway --host <origin>`. Gateway setup can proceed without a DSH CLI on PATH.
 
-The capture validates one official loopback HTTP root announcement and its
-32-byte/base64url launch token. Startup input is limited to 256 KiB total and
-8 KiB per line, with a 90-second deadline. Timeout, cancellation, malformed
-input, and source closure fail closed without destroying the Desktop-owned
-pipe. A ready handoff is opaque and single-use, including after a failed child
-launch. Source closure or cancellation revokes an unused handoff.
+Choose one Skill scope: the default is `.agents/skills/codex-dsh-orchestrator` in the checkout. Use `--skill-path <directory>` for a user-wide install or to update an existing global copy. Review MCP and Skill conflicts before adding `--replace` or `--replace-skill`. Apply the reviewed command without `--dry-run`; retain its backups.
 
-Only the newly spawned trusted caller receives `DSH_CONNECT_TOKEN`, its bound
-`DSH_CONNECT_ORIGIN`, and the default input-variable name in its process
-environment. The parent environment and system/user environment settings are
-not changed. The token is never added to arguments, status messages, errors,
-TOML, or a coordination ledger. Caller stdin is **ignored**, not inherited from
-the startup stream; Desktop output must not become a Codex prompt. Caller output
-belongs to the trusted caller. Only GUI-style caller launching is qualified by
-this interface; it is not an interactive CLI stdin passthrough.
+Setup records the selected Node executable and `dist/index.js`. Its Gateway block contains:
 
-The Windows/macOS CLI refuses an already-running same-name caller, both before capture
-and before launch, conservatively including copies in another location. Each Windows OS-only process query has a 30-second upper bound;
-failure or timeout refuses the handoff, never proves that the caller is absent,
-and is not retried. The query receives only an allowlist of normal OS environment
-variables needed by Windows PowerShell, not DSH/caller credentials. Quit Codex normally at a separately approved installation
-checkpoint before using it; single-instance forwarding does not reliably refresh
-an existing process environment. A process-start race and actual packaged Codex
-environment inheritance remain live-qualification items, not proven by tests.
-The command never kills a caller or Desktop to resolve a conflict.
-macOS uses the system `/bin/ps` command's `comm` field (no arguments or environment),
-with a 10-second deadline and bounded output. A failed/empty process query refuses
-the handoff; it never means the caller is absent. No sudo or permissions changes
-are attempted. Native subprocesses receive only a fixed non-credential OS environment.
+```toml
+[mcp_servers.dsh_agentlink]
+command = "/absolute/path/to/node"
+args = ["/absolute/path/to/Codex-DSH-Orchestrator/dist/index.js"]
+env_vars = ["DSH_CONNECT_TOKEN", "DSH_CONNECT_ORIGIN"]
 
-The bridge retains automatic Host discovery. `DSH_CONNECT_ORIGIN` is an
-authorization constraint, **not** a static `DSH_HOST_URL`: a resolved origin
-mismatch rejects before sending `/connect`. In official `desktop-auto` mode it
-also narrows the OS-confirmed owned loopback candidates to an exact origin
-match. It cannot substitute for process/listener inspection or select an
-unobserved/unowned endpoint. No match rejects authorization; without a binding,
-multiple candidates still refuse discovery. IPv4 and IPv6 origins are distinct.
-Host restart requires a new capture
-and a newly launched caller; no stale-token fallback or caller restart is
-automatic. Existing manually supplied tokens without an origin binding remain
-supported for backwards compatibility.
+[mcp_servers.dsh_agentlink.env]
+DSH_HOST_PROTOCOL = "gateway"
+DSH_HOST_MODE = "desktop-auto"
 
-Process environments are not a sandbox. The selected caller, its plugins/child
-processes, same-user debugging tools, and administrators must be trusted. This
-helper does not protect against hostile code in that environment, OS crash dumps,
-or a caller deliberately dumping its environment. Tests use synthetic tokens and
-real fake Node callers plus a mock Gateway only. No actual Codex restart,
-official Host admission, or model request has qualified this handoff yet.
+[mcp_servers.dsh_agentlink.tools.dsh_resolve_approval]
+approval_mode = "prompt"
+```
 
-## Connection and supervision
+`env_vars` forwards names from Codex's process environment. Token values stay out of TOML. `--no-preset` follows DSH's default composition rather than adding the installer's legacy preset override. Preserve unrelated MCP entries.
 
-- Windows discovery recognizes the exact `DeepSeek Harness` executable and only
-  its owned loopback listeners. More than one candidate without a unique
-  authorization-bound match is an error. Discovery is
-  not protocol verification and never scans arbitrary ports or exchanges tokens.
-- macOS official discovery recognizes the packaged `DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness`
-  path, including user-installed or translocated locations, and excludes helper
-  bundles/lookalikes. System `/usr/sbin/lsof` is restricted to those exact PIDs,
-  numeric TCP listening sockets and loopback addresses. Discovery refuses
-  multiple origins without a unique authorization-bound match, malformed
-  metadata, missing tools or failed inspection;
-  there is no global socket query, port scan, authentication probe or sudo fallback.
-  Path/process identity is not application code-signature verification. Legacy
-  third-party Desktop automatic discovery remains Windows-only; Darwin setup
-  requires the explicit official `--gateway` option.
-- The explicitly selected adapter exchanges the token at `/connect`, validates
-  the same-origin Mux redirect and authority-bound API Cookie, and owns one API
-  socket. Cookies remain in memory and separate from browser storage.
-- Authentication refusal, missing authorization, and unsupported wire framing
-  fail closed. They do not trigger background reauthentication or a legacy
-  protocol fallback. Network observation may reconnect, but writes are never
-  replayed internally after a lost response. Missing/method-incompatible RPC
-  endpoints are protocol errors, not reconnectable network outages.
-- Connection failures expose an optional `connection.diagnostic` with fixed
-  `stage` and `reason` codes only. Discovery distinguishes process queries,
-  process matching, listener queries and candidate selection; Gateway admission
-  distinguishes authorization input, origin binding, HTTP and WebSocket opening.
-  Native output, underlying exceptions, paths, PIDs, addresses, ports and tokens
-  are not copied into these diagnostics. `host_unreachable` alone does not prove
-  a network fault: discovery can fail before any request. A query failure is not
-  evidence of zero processes/listeners or proof of a particular permission issue.
-  A subsequent unrelated failure or successful connection clears the old
-  diagnostic. Legacy discovery and protocol behavior are unchanged.
-- Named Gateway RPCs map to the existing caller tools. Prompt correlation uses
-  the Gateway's durable `requestId`. History pages use a cut obtained from a
-  verified follow opening, not an invented cursor or unbounded polling.
-- Only mapped roots are followed. Ordinary approvals/questions are correlated to
-  the owning event generation; a human reply is required and sent at most once.
-  Other sessions' requests are delegated to the Host's next answerer, never
-  granted. Settled/cancelled event identities cannot be reintroduced by duplicate
-  delivery in that generation. The identity history is bounded; exhaustion ends
-  observation instead of forgetting identities and allowing replay. Cancelling
-  an observation does not cancel the DSH task.
-- Read-only doctor deliberately does **not** authenticate or create an API Peer.
-  Its Gateway result is `not_probed`, not a fabricated connection success.
+## Operator startup
 
-## Capability boundaries
+**The commands in this section start Desktop and Codex. First finish active work and quit both apps normally.** Run from a separate Terminal or PowerShell window, not from inside Codex. The helper refuses a caller that is already running; it cannot refresh an existing GUI process's environment.
 
-- Account and API-key providers are distinct. Flash supports the current
-  `deepseek-flash` id as well as the verified legacy id. Pro remains a distinct
-  advertised route; unsupported efforts or ambiguous providers are errors.
-- Model inspection requires an exact `modelSelection` projection. An omitted
-  projection does not prove the session inherits the global default. Only an
-  explicitly empty selection projection permits that default to be used.
-- Explicit model selection may persist as the Host's global default. Use
-  `inherit` for an installation smoke test unless a model change was approved.
-- `session/modelCatalog` in the targeted release omits input modalities. Modern
-  Flash Vision therefore remains unavailable without explicit capability
-  evidence. Do not infer active image support from the display name or silently
-  send a visual task to a text-only route. A verified same-provider legacy vision
-  route may still be used when a newer Flash lacks image evidence. The historical
-  exception belongs only to its exact official provider/model pair and never
-  overrides an explicit text-only declaration. The separate `llm/discoverModels`
-  draft API is not a substitute: the built-in providers do not register its
-  callback, and the bridge does not interrogate providers or ask for their keys.
-- Queue inspection refreshes the mapped root's pending inbox from its exact
-  follow-opening projection during explicit status/write preflight. It does not
-  subscribe to the Host-wide control stream or inspect unrelated inboxes.
-  `next-turn` maps to queued work and `next-step` to steering. Missing, malformed,
-  duplicate-id, mismatched-cut or failed snapshots invalidate the old view; they
-  never prove the queue empty. Cancellation removes only observed item ids and
-  remains non-atomic; an already-claimed item is reported separately. Queue
-  bodies remain in memory, not in the persistent coordination ledger.
-- Subagent-mode discovery is not yet mapped and is reported unavailable, not
-  empty/supported. Timed question wait claims are not implemented; those
-  requests stay with the Host's human answerer. Do not
-  auto-approve, synthesize unsupported capabilities, or change DSH permissions.
-- The bridge does not launch, stop, restart, log in to, or reconfigure Desktop.
-  Actual Windows live validation and provider/vision tests require their own
-  operator approval and an already running authorized Host.
+Use the Node executable recorded by setup, the approved repository, and the actual trusted caller executable. On macOS this is the binary inside `.app/Contents/MacOS/`; the bundle directory and `open -a` are unsuitable. Some Codex installations use the `ChatGPT.app` bundle name shown below.
 
-## Qualification and outstanding gates
+The examples feed Desktop stdout directly to the existing `authorized-caller.js` helper. Edit the paths before use. Keep startup output private: do not use `tee`, save a startup log, paste an authorization URL or expose Desktop stderr.
 
-The Windows installed-program metadata and read-only process/listener discovery
-were checked against Desktop `0.2.1-rc.2`. Read-only package-manifest inspection
-also confirmed bundled `@deepseek-ai/dsh` and `@deepseek-ai/dsh-desktop-host`
-at `0.2.1-rc.2`; no packaged code was executed. Its bundled tools manifest declares
-Node `24.21.0` and pnpm `11.28.5`. This checks installation identity/discovery,
-not Host admission, the active account catalog, or model inference. No model
-request is required for these checks.
+### Windows PowerShell
 
-The Gateway runtime reports a separate `testedProtocolContract`; its
-`testedAgainstDshVersion` is `null`, not the legacy `0.1.0-rc.6` qualification.
-An operator-declared version is not promoted into verified compatibility.
+This example checks process names and paths before launching. If inspection fails or either app is running, it stops before launch.
 
-The previous queue-compatibility checkpoint passed build and 245 deterministic tests on
-Windows with Node `26.7.0`. Its package dry-run contained 107 expected entries and
-no runtime credentials or maintenance state. The local handoff adds separately
-verified regression tests; do not substitute the prior checkpoint's results for
-its current validation. CI includes Node 22/24/26 on
-Ubuntu/Windows/macOS; a matrix declaration alone is not a successful CI result.
-These checks use synthetic HTTP/WebSocket Hosts, never inference providers.
+```powershell
+$ErrorActionPreference = 'Stop'
+$bridgeRepo = Join-Path $HOME 'Tools/Codex-DSH-Orchestrator'
+$bridgeNode = 'C:/Program Files/nodejs/node.exe'
+$desktopExe = Join-Path $env:LOCALAPPDATA 'Programs/DeepSeek Harness/DeepSeek Harness.exe'
+$callerExe = 'C:/path/to/installed/Codex.exe'
 
-Before calling this adapter live-qualified, separately approve installation,
-provide the supported launch credential, restart the caller, and qualify a
-disposable non-visual task and same-session follow-up. Model/vision requests
-require separate authorization. Do not consume provider tokens merely to check
-whether a route works. Native vision capability discovery, timed-question
-ownership and subagent-mode discovery remain explicit gaps. Queue snapshots
-refresh on explicit observation/preflight; an independent live queue-change
-notification stream is not implemented.
+foreach ($file in @($bridgeNode, $desktopExe, $callerExe, "$bridgeRepo/dist/authorized-caller.js")) {
+  if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw 'Check the selected executable and repository paths.' }
+}
+$callerName = [System.IO.Path]::GetFileNameWithoutExtension($callerExe)
+$runningApps = @(Get-Process -ErrorAction Stop | Where-Object {
+  $_.ProcessName -in @($callerName, 'DeepSeek Harness')
+})
+if ($runningApps.Count -gt 0) { throw 'Finish current work and quit Codex and DeepSeek Harness first.' }
+$launchFlags = @('ELECTRON_RUN_AS_NODE', 'ELECTRON_NO_ASAR', 'NODE_OPTIONS', 'NODE_PATH',
+  'NODE_V8_COVERAGE', 'NODE_REDIRECT_WARNINGS', 'ELECTRON_ENABLE_LOGGING',
+  'ELECTRON_LOG_FILE', 'ELECTRON_ENABLE_STACK_DUMPING')
+if (@($launchFlags | Where-Object { [Environment]::GetEnvironmentVariable($_) }).Count -gt 0) {
+  throw 'Use a clean standalone PowerShell window for this launch.'
+}
+& $desktopExe 2>$null |
+  & $bridgeNode "$bridgeRepo/dist/authorized-caller.js" --caller $callerExe *> $null
+```
 
-## Upstream contracts
+### macOS Terminal
 
-- [Connection](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.2/packages/client/connection/README.md)
+The subshell clears launch/debug flags for its children only. The OS check uses the repository's existing process-inspection helper.
+
+```sh
+(
+  bridge_repo="$HOME/Tools/Codex-DSH-Orchestrator"
+  bridge_node="/usr/local/bin/node"
+  desktop_exe="/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness"
+  caller_exe="/Applications/ChatGPT.app/Contents/MacOS/ChatGPT"
+
+  unset ELECTRON_RUN_AS_NODE ELECTRON_NO_ASAR NODE_OPTIONS NODE_PATH \
+    NODE_V8_COVERAGE NODE_REDIRECT_WARNINGS ELECTRON_ENABLE_LOGGING \
+    ELECTRON_LOG_FILE ELECTRON_ENABLE_STACK_DUMPING
+
+  if [ -x "$bridge_node" ] && [ -x "$desktop_exe" ] && [ -x "$caller_exe" ] &&
+    [ -f "$bridge_repo/dist/authorized-caller.js" ] &&
+    "$bridge_node" --input-type=module - "$bridge_repo" "$desktop_exe" "$caller_exe" >/dev/null 2>&1 <<'NODE'
+import { pathToFileURL } from 'node:url';
+const { macosCallerIsRunning } = await import(
+  pathToFileURL(process.argv[2] + '/dist/macos-process-inspection.js').href
+);
+for (const executable of process.argv.slice(3)) {
+  if (await macosCallerIsRunning(executable)) process.exit(1);
+}
+NODE
+  then
+    "$desktop_exe" </dev/null 2>/dev/null |
+      "$bridge_node" "$bridge_repo/dist/authorized-caller.js" \
+        --caller "$caller_exe" >/dev/null 2>&1
+  else
+    printf '%s\n' 'Not started: check paths and finish any running Codex/DeepSeek Harness work.'
+  fi
+)
+```
+
+Keep the startup terminal open while using the integration. Closing it or pressing Ctrl+C can interrupt the pipeline or its applications. If Codex fails to open, stop and report the symptom; repeated launches can leave extra instances. A Host restart requires a fresh handoff and a newly launched caller.
+
+The helper has an inert `--help` command. It only launches the selected caller after receiving valid startup authorization; Desktop is launched by the operator's pipeline. Caller stdin is isolated from that startup stream.
+
+## Check loading and connection
+
+After the controlled launch:
+
+1. Confirm `dsh_agentlink` in `/mcp` or Settings and the intended `dist/index.js` path.
+2. Confirm `codex-dsh-orchestrator` in the Skill selector or through explicit invocation.
+3. With connection approval, call `dsh_host_status` once. It can perform `/connect` and establish an API Peer, but sends no model request.
+4. Expect `availability=connected`, `reachable=true` and successful connection/resolution epochs. Keep endpoint details private.
+
+`npm run doctor` checks configuration and lock structure without Gateway admission; `not_probed` is expected there. A model task is a separate acceptance step using `inherit` in a disposable workspace.
+
+## Authorization and discovery
+
+The supported startup input is one official loopback HTTP-root announcement with a 32-byte base64url token. Capture is bounded to 256 KiB total, 8 KiB per line and 90 seconds. A handoff is single-use; source closure or cancellation revokes an unused handoff.
+
+Only the newly launched caller receives `DSH_CONNECT_TOKEN`, bound `DSH_CONNECT_ORIGIN` and the token input-variable name. Parent/system environment settings remain unchanged. Select a trusted caller and plugins: its process environment contains authorization.
+
+`DSH_CONNECT_ORIGIN` binds authorization to an OS-confirmed owned loopback listener. It is not a static Host setting. With multiple listeners, only an exact binding can select the intended origin; an absent binding leaves ambiguity unresolved. IPv4 and IPv6 origins are distinct.
+
+Windows discovery selects exact `DeepSeek Harness` processes and owned loopback listeners. macOS selects the packaged `DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness` binary, including user-installed or translocated locations; it uses `/bin/ps` metadata and PID-restricted `/usr/sbin/lsof` queries. Neither path scans arbitrary ports. Executable-path matching does not verify an app signature.
+
+Admission validates the same-origin Mux redirect and authority-bound API cookie, then owns one API socket. Cookies stay in memory. Missing/rejected authorization, unsupported framing and Peer conflicts stop that attempt; network observation can reconnect, but mutation writes are not replayed after uncertain outcomes.
+
+## Connection diagnostics
+
+Use the returned fixed `connection.diagnostic.stage` and `reason`. These distinguish process/listener inspection, candidate selection, authorization binding, HTTP admission and WebSocket opening without printing native command output or authorization.
+
+`host_unreachable` can occur before a network request. An inspection failure is not evidence that no process exists. For `ambiguous_desktop_host`, preserve the current processes and inspect sanitized counts/binding; do not kill an instance or substitute a guessed port. After a new connection or unrelated failure, the previous diagnostic is cleared.
+
+The helper's Windows caller queries have a 30-second bound; macOS queries use a 10-second bound. Failed inspection refuses launch. Timeout or cancellation does not authorize app termination.
+
+## Models and capabilities
+
+- Session route inspection uses `session/modelCatalog` plus the exact `modelSelection` projection. Only an explicitly empty selection permits inheriting the global default; missing projection data is refused.
+- Flash recognizes current `deepseek-flash` and legacy `deepseek-v4-flash`; Pro requires its own advertised `deepseek-v4-pro`. Account/API-key boundaries and advertised reasoning efforts are checked on every selection, then re-read before prompting.
+- rc.3 can change model availability through provider listing, cache and client-version gates. The bridge follows the Host catalog; it does not bypass `CLIENT_UPGRADE_REQUIRED` or `MODEL_UNSUPPORTED`. Synthetic rejection tests prove no selection/prompt replay or ModLens switch.
+- Explicit selection persists the selection as DSH's global default. Use `inherit` for an installation smoke.
+- The scoped rc.3 session catalog omits image modalities. Native vision requires trustworthy exact-route image evidence. The legacy exception is limited to `deepseek-official/deepseek-v4-flash-vision-exp` and an explicit text-only declaration overrides it.
+- rc.3 provider source includes `discoverModels` callbacks, but callback presence does not establish an authenticated `llm/discoverModels` wire capability. The bridge continues to use session metadata.
+- Pending queues come from the mapped root's exact follow snapshot: `next-turn` is queued and `next-step` is steering. Invalid, missing, duplicate or mismatched-cut data makes the queue unknown. Queue removal is non-atomic, and already-claimed items are reported separately.
+- Ordinary questions/approvals are scoped to mapped roots and the current event generation. Human replies are sent at most once; timed question ownership stays with the Host. Subagent-mode discovery remains unavailable. Settled/cancelled interactions cannot be replayed within the same bounded generation.
+- History uses the verified follow cut and durable prompt `requestId`. Ending observation leaves the DSH task running. Queue bodies and conversation content are not stored in the coordination ledger.
+
+### Visual and legacy Code Mode
+
+The visual policy uses official Flash Vision for low complexity when capability is verified; high complexity asks the user to choose that route or ModLens Pro. ModLens Flash is attempted once after the approved route's bounded qualifying failures. Invalid input, missing models, permissions, credentials, configuration and prompt-write errors do not trigger fallback. Show the result's short fallback notice at task end.
+
+The bridge carries text and DSH-accessible local image paths. On the previously verified legacy rc.6 collapsed Code Mode path, the ModLens handoff calls `run_code`, then `tools.modlens_read_image` inside the injected SDK. Keep the work on that verified tool path and wait for its nested result or explicit error. Its inner timeout does not set the overall task deadline. Other Hosts follow their verified tool contract. Current official native vision/ModLens execution remains unqualified.
+
+## Validation and rollback
+
+A previous Apple Silicon installation completed connection admission and one inherited read-only task on the earlier official adapter build. It did not qualify the subsequent dependency upgrade or a same-root follow-up. Windows has official rc.2 installation/discovery evidence and native synthetic handoff tests; final-candidate official Windows live acceptance is pending.
+
+The current source gate passed build and 293 tests on Windows Node 26.7.0. The CI definition includes Node 22/24/26 on Ubuntu/Windows/macOS; the next candidate needs its own CI and both-platform live acceptance.
+
+Preserve the old checkout and installer backups. Before rollback, review subsequent edits, restore only the intended MCP/Skill content and relaunch during an agreed window. Leave DSH configuration and active tasks untouched during preparation.
+
+## Contract references
+
+- [Official Connection](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.2/packages/client/connection/README.md)
 - [Gateway stream protocol](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.2/packages/api/gateway/src/stream-protocol.ts)
-- [Session Remote types](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.2/packages/api/session-controller/src/types.ts)
-- [Official Desktop product packaging](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.2/apps/desktop/scripts/electron-builder-config.mjs)
-- [Apple ps command fields](https://github.com/apple-oss-distributions/adv_cmds/blob/main/ps/ps.1)
-- [lsof PID selection and field output](https://github.com/lsof-org/lsof/blob/master/docs/manpage.md)
+- [rc.3 session types](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.3/packages/api/session-controller/src/types.ts)
+- [Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp)

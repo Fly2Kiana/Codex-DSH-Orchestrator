@@ -2,7 +2,7 @@
 
 [English](architecture.md) | **简体中文**
 
-本文档收纳了从用户向 README 中移出的 bridge 语义，描述当前源码树的行为；版本发布与兼容性承诺仍以具体版本为准。
+本文描述共享协作语义与 legacy rc.6 RPC 路径。官方 Win/Mac adapter 的认证、发现、队列映射及能力差异见[官方 Desktop Gateway](official-desktop-gateway.md)，协议细节以实际选择的 adapter 为准。
 
 ## 定位与 Host 生命周期
 

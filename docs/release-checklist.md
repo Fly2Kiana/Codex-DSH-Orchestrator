@@ -1,103 +1,55 @@
-# Codex-DSH-Orchestrator release checklist
+# Release checklist
 
-This checklist describes the public source-release expectations for
-Codex-DSH-Orchestrator. It is maintainer guidance, not a promise that every
-future release will use the same schedule or hosting configuration.
+## Identity and source inventory
 
-## Project identity
+- Keep the English/Chinese README consistent and link [Project overview](project-overview.md), architecture, validation and contribution guidance.
+- Preserve `LICENSE`, `NOTICE`, MIT terms and visible [dsh-Agentlink attribution](https://github.com/hootandy321/dsh-Agentlink).
+- Describe the shared source as a Codex-to-DSH orchestration/MCP bridge with Windows/macOS official Desktop support; identify which build and environment were tested.
+- Keep `package.json` private. npm distribution requires its own reviewed release decision.
+- Exclude `node_modules/`, local `dist/`, generated `.agents/skills/codex-dsh-orchestrator/`, bridge state, credentials, logs and archives from the tracked source release. Package preview intentionally includes built `dist/`.
 
-Use a description that makes the caller-side boundary clear:
+## Privacy and provenance
 
-> Codex-first orchestration layer and caller-side MCP bridge for bounded collaboration with the official DeepSeek Harness (DSH) Web Host.
+Inspect the exact candidate tree and its newly reachable history for personal paths, internal hostnames, credentials, private keys, real identifiers and internal maintenance material. A corrected tree can still leave sensitive history reachable.
 
-Suggested repository topics:
+Review third-party licenses and copied assets. If sensitive material is found, stop publication, record its history exposure and obtain approval for the proposed correction. Keep internal plans and approval/backup records outside the public payload; review a deliberate source diff rather than blindly merging private maintenance history.
 
-- `codex`
-- `mcp`
-- `deepseek-harness`
-- `agent-orchestration`
-- `agent-collaboration`
-- `dsh`
+## Candidate and automated gate
 
-The project is an independently maintained derivative. It is not affiliated
-with or endorsed by DeepSeek, OpenAI, or the dsh-Agentlink maintainers.
+Choose the release version after scope approval. Keep package version, changelog, tag and release notes consistent; documentation work alone does not create a release.
 
-## Source-release gate
+From a clean checkout of the final candidate:
 
-- Confirm that the repository root opens with the Codex-DSH-Orchestrator README.
-- Keep the English and Chinese README files semantically aligned.
-- Link the [project overview](project-overview.md), architecture, validation,
-  and contribution guidance from the public documentation.
-- Retain `LICENSE`, `NOTICE`, the upstream copyright notice, and a visible
-  attribution link to the [dsh-Agentlink project](https://github.com/hootandy321/dsh-Agentlink).
-- Keep the upstream MIT terms intact when modifying or redistributing the
-  shared bridge runtime.
-- Remove generated files and local state from the release tree, including
-  `node_modules/`, `dist/`, the repository-local generated
-  `.agents/skills/codex-dsh-orchestrator/` copy, `.env` files, logs, archives,
-  editor metadata, and bridge state.
-- Search the complete release tree for credentials, private keys, tokens,
-  personal absolute paths, internal hostnames, and real session identifiers.
-- Verify that every third-party asset and copied source has a documented
-  license or attribution.
-
-## Public privacy and provenance gate
-
-Before every public release:
-
-- Inspect the exact candidate tree for machine-specific paths, local usernames,
-  internal worktree names, maintenance-only references, agent-only execution
-  directives, credentials, private keys, tokens, hostnames, and real session
-  identifiers.
-- Inspect the complete commit history reachable from the release candidate for
-  the same classes of information. A clean current tree does not remove an
-  earlier exposed blob or commit.
-- Keep internal implementation plans, rollback instructions, and local
-  approval workflows in private maintenance storage unless they have been
-  rewritten as intentional public documentation.
-- If a violation is found, stop before creating a Tag, Release, or publishing
-  package artifacts. Remove it through review, record whether it remains in
-  reachable history, and obtain separate approval before any history rewrite
-  or repository rebuild.
-
-## Functional validation
-
-From a clean checkout, run:
-
-```bash
+```sh
 npm ci
 npm run check
-npm pack --dry-run
+npm pack --dry-run --ignore-scripts
+git diff --check
 ```
 
-Also run the live procedure in [`validation.md`](validation.md) against the
-DSH version and supported caller versions documented by the README. Confirm
-that the procedure does not require starting or stopping DSH on behalf of the
-user.
+Record the SHA/tree, resolved dependency versions, build/test counts, package inventory and Git cleanliness. Review dependency advisories without automatic remediation.
 
-## Safety and compatibility gate
+Require that exact candidate's CI on Ubuntu, Windows and macOS with Node 22/24/26, plus applicable CodeQL review. Separate these results from historical CI and previously accepted test-only findings.
 
-- The bridge remains connect-only and does not own the DSH Web Host lifecycle.
-- Authentication, Host permissions, and approval decisions remain outside
-  the bridge; approval responses remain human-gated.
-- The project does not present itself as a DSH Cordis bundle.
-- Runtime package names, CLI names, MCP identifiers, and compatibility
-  boundaries are changed only with an explicit migration note.
-- `package.json` remains `private: true` unless npm distribution has its own
-  reviewed package, ownership, security, and release decision.
+## Same-candidate Windows/Mac acceptance
 
-## Version and release notes
+Follow [Validation](validation.md) on each platform:
 
-- Update `CHANGELOG.md` with user-visible changes and known limitations.
-- Keep the package version, release notes, and Git tag aligned.
-- Record breaking changes, migration steps, and compatibility-impacting
-  changes before publishing a release.
-- After publication, verify the repository landing page, README links, release
-  notes, and source archive from a clean user-facing view.
+1. Record actual caller, Desktop/core, Node and installed bridge/Skill identity.
+2. Obtain installation/downtime approval, back up the intended files and keep the old installation.
+3. Apply only reviewed targets. Use the operator-controlled startup handoff after finishing active tasks; keep the startup terminal open.
+4. Confirm MCP/Skill loading and connection-only Gateway admission.
+5. After model-use approval, run one inherited read-only disposable task, then a same-root follow-up.
+6. Check final answers, file hashes, claim release and absence of unexpected model/approval behavior. Record Desktop UI visibility separately.
 
-## Maintainer follow-up
+Native vision, ModLens, extra callers or broader interaction tests require their own scope and budget. Missing evidence must remain a stated limit.
 
-- Review open security reports and dependency alerts.
-- Confirm CI runs on the Node.js versions supported by the README.
-- Re-check the upstream license, attribution, and any newly added assets.
-- Record deferred work in the roadmap instead of implying that it is shipped.
+## Release review
+
+- Keep Host lifecycle, login, permissions and provider credentials with the operator. Retain human approval for escalation and explicit review before model-default changes.
+- Explain installer replacements, restart requirements, Skill scope, authorization lifetime and rollback.
+- Record implemented capabilities and remaining gaps without promoting a protocol reference or operator declaration into a verified product version.
+- Review the final public diff and reachable history before requesting approval to push, open/merge a PR, create a tag or publish a release.
+- After approved publication, inspect the landing page, links, release notes and source archive from a clean user-facing view.
+
+Record deferred work in the [roadmap](deferred-roadmap.md). Re-check upstream attribution and dependency alerts at each release.
