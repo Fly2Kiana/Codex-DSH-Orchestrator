@@ -4,7 +4,7 @@ This file records user-visible changes to Codex-DSH-Orchestrator. The project
 is distributed as source code; `package.json` remains private and this file
 does not announce an npm publication.
 
-## Unreleased
+## 0.1.0-alpha.6 — release candidate
 
 - Added an opt-in authenticated official Desktop Gateway adapter with owned
   loopback discovery on Windows and macOS, in-memory startup authorization,

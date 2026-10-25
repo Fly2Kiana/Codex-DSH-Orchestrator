@@ -22,7 +22,7 @@ Requirements: Node.js 22+, npm, Git, Codex and the official DeepSeek Harness Des
 | Official Gateway at a known origin | `--gateway --host <origin> --no-preset` |
 | Legacy rc.6 Web Host or community Windows Desktop | Use the [legacy configuration](docs/manual-configuration.md#legacy-host) |
 
-The source package is `0.1.0-alpha.5`; the official Desktop changes are under **Unreleased** in the changelog. The current evidence is summarized in [Validation](docs/validation.md). The CI definition covers Node 22/24/26 on Ubuntu, Windows and macOS. Final-candidate Windows/Mac live acceptance is still pending.
+This checkout is the `0.1.0-alpha.6` release candidate for official Desktop support. It has not been released. [Validation](docs/validation.md) summarizes the current evidence. CI covers Node 22/24/26 on Ubuntu, Windows and macOS; final-candidate Windows/Mac live acceptance is still pending.
 
 ### Recommended: copy/paste the Agent installation prompt
 

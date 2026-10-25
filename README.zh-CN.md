@@ -22,7 +22,7 @@ connect-only MCP 注册名为 `dsh_agentlink`，连接由用户管理的 DSH Hos
 | 已知 origin 的官方 Gateway | `--gateway --host <origin> --no-preset` |
 | 旧 rc.6 Web Host 或 Windows 社区 Desktop | 参见[旧版配置](docs/manual-configuration.zh-CN.md#旧版-host) |
 
-源码包版本仍为 `0.1.0-alpha.5`，官方 Desktop 更新列在 changelog 的 **Unreleased** 中。[验证记录](docs/validation.md)说明当前证据。CI 定义覆盖 Ubuntu、Windows、macOS 与 Node 22/24/26；最终候选的 Win/Mac 真实验收尚待完成。
+当前为支持官方 Desktop 的 `0.1.0-alpha.6` 发布候选，尚未发布。[验证记录](docs/validation.md)说明当前证据。CI 覆盖 Ubuntu、Windows、macOS 与 Node 22/24/26；最终候选的 Win/Mac 真实验收尚待完成。
 
 ### 推荐：复制给 Agent 的安装 Prompt
 
