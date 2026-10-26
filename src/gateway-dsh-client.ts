@@ -45,21 +45,44 @@ class MuxInbox {
   ended = false;
   error: unknown;
   wake: (() => void) | undefined;
-  push(frame: DshMuxFrame, rpcId: string = randomUUID()): void {
-    if (this.ended) return;
+  spaceWaiters = new Set<() => void>();
+  async push(frame: DshMuxFrame, signal: AbortSignal, rpcId: string = randomUUID()): Promise<void> {
+    if (this.ended || signal.aborted) return;
     const item: Envelope = { type: "server-request", rpcId, method: "events.mux", payload: frame };
     const bytes = Buffer.byteLength(JSON.stringify(item));
-    if (this.items.length >= 256 || this.bytes + bytes > 8 * 1024 * 1024) {
+    if (bytes > 8 * 1024 * 1024) {
       throw new GatewayConnectionError("buffer_overflow", "Gateway normalized observation exceeded its bounded buffer");
+    }
+    // A single valid opening snapshot can expand into more than 256 events.
+    // Wait for consumption instead of overflowing during synchronous expansion.
+    while (this.items.length >= 256 || this.bytes + bytes > 8 * 1024 * 1024) {
+      await new Promise<void>((resolve) => {
+        const ready = () => {
+          this.spaceWaiters.delete(ready);
+          signal.removeEventListener("abort", ready);
+          resolve();
+        };
+        this.spaceWaiters.add(ready);
+        signal.addEventListener("abort", ready, { once: true });
+        if (this.ended || signal.aborted) ready();
+      });
+      if (this.ended || signal.aborted) return;
     }
     this.items.push(item); this.bytes += bytes; this.wake?.(); this.wake = undefined;
   }
-  end(error?: unknown): void { this.ended = true; this.error ??= error; this.wake?.(); this.wake = undefined; }
+  private available(): void { for (const ready of this.spaceWaiters) ready(); }
+  end(error?: unknown): void {
+    this.ended = true; this.error ??= error; this.wake?.(); this.wake = undefined;
+    this.available();
+  }
   async next(): Promise<IteratorResult<Envelope, void>> {
     while (true) {
       if (this.error) throw this.error;
       const item = this.items.shift();
-      if (item) { this.bytes -= Buffer.byteLength(JSON.stringify(item)); return { done: false, value: item }; }
+      if (item) {
+        this.bytes -= Buffer.byteLength(JSON.stringify(item)); this.available();
+        return { done: false, value: item };
+      }
       if (this.ended) return { done: true, value: undefined };
       await new Promise<void>((resolve) => { this.wake = resolve; });
     }
@@ -228,12 +251,15 @@ export class GatewayDshClient implements DshApi {
               throw new GatewayConnectionError("unsupported_protocol", "session follow opening is invalid");
             }
             opened = true; clearTimeout(openingTimer);
-            generation.inbox.push({ type: "session/subscribed", sessionId, lastSeq: parsed.data.cursor });
-            for (const record of parsed.data.records) generation.inbox.push({ type: "session/event", sessionId, event: record.event });
+            await generation.inbox.push({ type: "session/subscribed", sessionId, lastSeq: parsed.data.cursor }, signal);
+            for (const record of parsed.data.records) {
+              if (signal.aborted) break;
+              await generation.inbox.push({ type: "session/event", sessionId, event: record.event }, signal);
+            }
           } else {
             const parsed = recordSchema.safeParse(value);
             if (!parsed.success) throw new GatewayConnectionError("unsupported_protocol", "unsupported durable session frame");
-            generation.inbox.push({ type: "session/event", sessionId, event: parsed.data.event });
+            await generation.inbox.push({ type: "session/event", sessionId, event: parsed.data.event }, signal);
           }
         }
         if (!signal.aborted) throw new DshRpcError("gateway/follow-ended", "session follow ended before cancellation", {});
@@ -254,9 +280,10 @@ export class GatewayDshClient implements DshApi {
       const pending = this.pending.get(frame.eventId);
       if (pending?.generation !== generation) return;
       this.pending.delete(frame.eventId);
-      generation.inbox.push(pending.type === "approval"
+      await generation.inbox.push(pending.type === "approval"
         ? { type: "approval/resolved", sessionId: pending.sessionId, approvalId: frame.eventId, outcome: "cancelled" }
-        : { type: "question/resolved", sessionId: pending.sessionId, questionRpcId: frame.eventId, outcome: "cancelled" });
+        : { type: "question/resolved", sessionId: pending.sessionId, questionRpcId: frame.eventId, outcome: "cancelled" },
+      generation.controller.signal);
       return;
     }
     if (frame.type !== "waterfall") return; // Do not forward unrelated account/settings notifications.
@@ -283,7 +310,7 @@ export class GatewayDshClient implements DshApi {
       : dshQuestionRequestedFrameSchema.safeParse({ questions: request.questions, type: "question/requested", sessionId });
     if (!pending.success) throw new GatewayConnectionError("unsupported_protocol", "interaction cannot be normalized safely");
     this.pending.set(eventId, { sessionId, type: event === "approval/request" ? "approval" : "question", generation, answering: false });
-    generation.inbox.push(pending.data, eventId);
+    await generation.inbox.push(pending.data, generation.controller.signal, eventId);
   }
 
   async respond(message: DshClientResponse, signal?: AbortSignal): Promise<DshRpcReceipt> {
@@ -336,6 +363,7 @@ export class GatewayDshClient implements DshApi {
     } finally {
       signal.removeEventListener("abort", abort);
       generation.controller.abort();
+      generation.inbox.end();
       await Promise.allSettled([...generation.pumps]);
       this.pending.clear();
       if (this.generation === generation) this.generation = undefined;

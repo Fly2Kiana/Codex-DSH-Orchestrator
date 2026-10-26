@@ -306,6 +306,62 @@ test("official question events remain typed, cancelled requests cannot be replay
   } finally { controller.abort(); await mux.return(); wire.close(); await host.close(); }
 });
 
+test("large official snapshots apply backpressure without losing event order", { timeout: 5_000 }, async () => {
+  const host = await startMockGatewayHost();
+  const wire = new GatewayConnection({ endpoint: { mode: "static", resolve: async () => ({ baseUrl: host.baseUrl, source: "configured" }) },
+    getConnectToken: () => "fixture", timeoutMs: 1_000 });
+  const api = new GatewayDshClient(wire, 1_000);
+  const controller = new AbortController();
+  const records = Array.from({ length: 600 }, (_, seq) => ({ type: "event", event: {
+    type: "turn/start", seq, time: seq + 1, data: { turn: seq + 1 },
+  } }));
+  host.onStream((stream) => host.send(stream, { type: "snapshot", header: { id: "sample" }, cursor: 599,
+    records, hasMore: false, projections: { asOfSeq: 599, values: {} } }));
+  api.trackSessions(["sample"]);
+  const mux = api.openMux(controller.signal);
+  try {
+    assert.equal((await mux.next()).value?.payload.type, "session/subscribed");
+    // Let the snapshot producer fill its inbox while the consumer is paused.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const sequences: number[] = [];
+    for (let index = 0; index < records.length; index++) {
+      const item = (await mux.next()).value;
+      assert.equal(item?.payload.type, "session/event");
+      if (item?.payload.type === "session/event") sequences.push(item.payload.event.seq);
+    }
+    assert.deepEqual(sequences, records.map((record) => record.event.seq));
+    assert.equal(host.connectCount, 1);
+    assert.equal(host.streams.filter((stream) => stream.endpoint === "session/follow").length, 1);
+  } finally { controller.abort(); await mux.return(); wire.close(); await host.close(); }
+});
+
+test("aborting saturated official observation releases blocked snapshot producers", { timeout: 5_000 }, async () => {
+  const host = await startMockGatewayHost();
+  const wire = new GatewayConnection({ endpoint: { mode: "static", resolve: async () => ({ baseUrl: host.baseUrl, source: "configured" }) },
+    getConnectToken: () => "fixture", timeoutMs: 1_000 });
+  const api = new GatewayDshClient(wire, 1_000);
+  const controller = new AbortController();
+  host.onStream((stream) => host.send(stream, { type: "snapshot", header: { id: "sample" }, cursor: 599,
+    records: Array.from({ length: 600 }, (_, seq) => ({ type: "event", event: {
+      type: "turn/start", seq, time: seq + 1, data: { turn: seq + 1 },
+    } })), hasMore: false, projections: { asOfSeq: 599, values: {} } }));
+  api.trackSessions(["sample"]);
+  const mux = api.openMux(controller.signal);
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  try {
+    assert.equal((await mux.next()).value?.payload.type, "session/subscribed");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    controller.abort();
+    await Promise.race([
+      mux.return(),
+      new Promise<never>((_, reject) => { deadline = setTimeout(() => reject(new Error("snapshot producer did not stop")), 2_000); }),
+    ]);
+  } finally {
+    if (deadline !== undefined) clearTimeout(deadline);
+    controller.abort(); wire.close(); await host.close();
+  }
+});
+
 test("official mock Host completes delegate/follow-up/queue cancellation without selecting a model", { timeout: 10_000 }, async () => {
   const host = await startMockGatewayHost();
   const home = await mkdtemp(join(tmpdir(), "gateway-bridge-test-"));
