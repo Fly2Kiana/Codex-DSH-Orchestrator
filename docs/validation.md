@@ -19,8 +19,8 @@ Tests use synthetic Hosts and inert caller fixtures. They cover MCP schemas, aut
 
 | Area | Evidence | Remaining check |
 | --- | --- | --- |
-| Current source on Windows | Node 26.7.0: build and 293/293 tests passed after SDK/Zod migration and rc.3 regressions | Final-candidate remote CI on all nine matrix jobs |
-| Official Windows Desktop | rc.2 installation metadata and owned-listener discovery inspected; native handoff tested with inert callers | Actual final-candidate official Codex/Gateway task and same-root follow-up |
+| Gateway inbox repair `26f22a5` | Windows Node 26.7.0: build and 295/295 tests; exact-build CI passed all nine Ubuntu/Windows/macOS x Node 22/24/26 jobs | Requalify subsequent candidate changes |
+| Official Windows Desktop | Operator-controlled native pipe opened the official Codex GUI; repaired bridge connected through owned-listener discovery and Gateway admission | Final-candidate task and same-root follow-up; old task reconciliation still reports a historical lock warning |
 | Apple Silicon | Earlier official-adapter installation on Node 24.20.0 passed connection and one inherited read-only task; files unchanged and claim released | Reinstall/retest the final dependency tree, record actual app/core versions and same-root follow-up |
 | rc.3 contract | Scoped source comparison plus synthetic dynamic-catalog, effort and rejection regressions | Real rc.3 account/catalog availability |
 | Vision/ModLens | Automated route policy and failure behavior | Current provider/tool execution and visual completion |

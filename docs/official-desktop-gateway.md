@@ -46,32 +46,20 @@ The examples feed Desktop stdout directly to the existing `authorized-caller.js`
 
 ### Windows PowerShell
 
-This example checks process names and paths before launching. If inspection fails or either app is running, it stops before launch.
+Use the bundled launcher below. It checks file paths, running apps and launch flags, then invokes a native batch pipe. Windows PowerShell 5.1 can buffer a direct PowerShell data pipeline until Desktop exits, leaving Codex unopened.
+
+Select the actual Codex GUI binary, which may be named `ChatGPT.exe` in the installed app package. A `codex.exe` on PATH may be the CLI instead. Recheck the GUI path after app updates.
 
 ```powershell
-$ErrorActionPreference = 'Stop'
 $bridgeRepo = Join-Path $HOME 'Tools/Codex-DSH-Orchestrator'
-$bridgeNode = 'C:/Program Files/nodejs/node.exe'
-$desktopExe = Join-Path $env:LOCALAPPDATA 'Programs/DeepSeek Harness/DeepSeek Harness.exe'
-$callerExe = 'C:/path/to/installed/Codex.exe'
-
-foreach ($file in @($bridgeNode, $desktopExe, $callerExe, "$bridgeRepo/dist/authorized-caller.js")) {
-  if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw 'Check the selected executable and repository paths.' }
-}
-$callerName = [System.IO.Path]::GetFileNameWithoutExtension($callerExe)
-$runningApps = @(Get-Process -ErrorAction Stop | Where-Object {
-  $_.ProcessName -in @($callerName, 'DeepSeek Harness')
-})
-if ($runningApps.Count -gt 0) { throw 'Finish current work and quit Codex and DeepSeek Harness first.' }
-$launchFlags = @('ELECTRON_RUN_AS_NODE', 'ELECTRON_NO_ASAR', 'NODE_OPTIONS', 'NODE_PATH',
-  'NODE_V8_COVERAGE', 'NODE_REDIRECT_WARNINGS', 'ELECTRON_ENABLE_LOGGING',
-  'ELECTRON_LOG_FILE', 'ELECTRON_ENABLE_STACK_DUMPING')
-if (@($launchFlags | Where-Object { [Environment]::GetEnvironmentVariable($_) }).Count -gt 0) {
-  throw 'Use a clean standalone PowerShell window for this launch.'
-}
-& $desktopExe 2>$null |
-  & $bridgeNode "$bridgeRepo/dist/authorized-caller.js" --caller $callerExe *> $null
+& "$bridgeRepo/docs/operator-tools/windows/launch-official-desktop.ps1" `
+  -BridgeRepository $bridgeRepo `
+  -NodePath 'C:/Program Files/nodejs/node.exe' `
+  -DesktopExecutable (Join-Path $env:LOCALAPPDATA 'Programs/DeepSeek Harness/DeepSeek Harness.exe') `
+  -CallerExecutable 'C:/path/to/installed/app/ChatGPT.exe'
 ```
+
+The launcher starts both apps but never stops a running app. It keeps Desktop stdout in the native pipe and prints only fixed handoff outcomes. `caller_launch_requested` means the helper launched the selected executable; verify the GUI and connection separately. On failure, report the fixed error and leave the terminal open. Do not run the batch file directly or pipe the launcher through PowerShell output commands.
 
 ### macOS Terminal
 
@@ -164,9 +152,9 @@ The bridge carries text and DSH-accessible local image paths. On the previously 
 
 ## Validation and rollback
 
-A previous Apple Silicon installation completed connection admission and one inherited read-only task on the earlier official adapter build. It did not qualify the subsequent dependency upgrade or a same-root follow-up. Windows has official rc.2 installation/discovery evidence and native synthetic handoff tests; final-candidate official Windows live acceptance is pending.
+A previous Apple Silicon installation completed connection admission and one inherited read-only task on the earlier official adapter build. Windows completed native-pipe startup and connection-only Gateway admission on build `26f22a5`, after the bounded event-inbox repair. That build passed 295 tests locally and all nine Ubuntu/Windows/macOS x Node 22/24/26 CI jobs. A historical task-lock warning remains; it is not a connection pass for old task reconciliation.
 
-The current source gate passed build and 293 tests on Windows Node 26.7.0. The CI definition includes Node 22/24/26 on Ubuntu/Windows/macOS; the next candidate needs its own CI and both-platform live acceptance.
+The bundled Windows pipe and output filter have synthetic regression tests. Final same-candidate Windows/macOS tasks and same-root follow-ups remain pending; connection admission sends no model request. See [Validation](validation.md) for the evidence boundaries.
 
 Preserve the old checkout and installer backups. Before rollback, review subsequent edits, restore only the intended MCP/Skill content and relaunch during an agreed window. Leave DSH configuration and active tasks untouched during preparation.
 
