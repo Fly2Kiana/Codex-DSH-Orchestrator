@@ -1,0 +1,2 @@
+Permitted maintainer attribution fixture.
+Never merge this temporary PR.
