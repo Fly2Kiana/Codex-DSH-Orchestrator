@@ -1,2 +1,2 @@
-Permitted maintainer attribution fixture.
+Unauthorized author fixture.
 Never merge this temporary PR.
