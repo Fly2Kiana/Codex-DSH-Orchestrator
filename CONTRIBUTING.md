@@ -52,6 +52,12 @@ Do not generalize one successful local run into compatibility with untested vers
 
 ## Pull requests
 
+Only the maintainer `Fly2Kiana` (GitHub account ID `171018150`) is currently approved for commit attribution in `main`. Use `Fly2Kiana <171018150+Fly2Kiana@users.noreply.github.com>`; a matching display name alone does not pass the author check. Additional authors require the owner's explicit approval before changing the policy. The workflow never adds identities automatically.
+
+Dependency bots can continue to report security updates and open PRs. Their commits are not merged directly: after review, the maintainer reintegrates useful changes under the approved identity and records the original PR as their source. Preserve upstream LICENSE/NOTICE attribution.
+
+Main accepts squash merges only, with the required author-policy status alongside existing checks. The policy checks all PR commit authors, linked GitHub account IDs and coauthor trailers, including the prospective squash title/body. Its privileged PR workflow uses trusted base code and reads metadata without executing PR code. Main pushes also scan reachable author history. Author metadata checks, GitHub account attribution and cached Contributors displays are separate; the check is not a cryptographic authorship proof.
+
 Before opening a pull request:
 
 ```bash
