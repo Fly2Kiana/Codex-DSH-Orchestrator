@@ -10,7 +10,7 @@ Model/effort routing follows the session catalog and keeps account/API-key provi
 
 Reuse can reduce rereads while increasing retained-context input. Keep `providerCacheEvidence=not_exposed` unless documented aggregate cached-token telemetry exists.
 
-[Validation](validation.md) records automated evidence and the earlier Apple Silicon read-only smoke. Final-candidate dual-platform live acceptance remains release work; it does not require developing a new transport.
+[Validation](validation.md) records the completed Windows and Apple Silicon Mac read-only task and same-root follow-up, together with source CI, CodeQL and author-policy evidence. Real rc.3 product runs, Intel Mac and extended visual/interaction tests remain separately scoped work.
 
 ## Deferred work
 
@@ -27,7 +27,7 @@ Reuse can reduce rereads while increasing retained-context input. Keep `provider
 | ModLens resilience / data egress | Choose upstream contribution or fork, then approve timeout passthrough, structured `nextSteps`, fidelity/downscale tradeoffs, any second provider and its credentials/cost/data policy. |
 | Gateway capability gaps | Verified Host wire contracts support image-modality discovery, timed-question ownership or subagent-mode discovery. Provider callback code alone is insufficient. |
 
-Cross-worktree/new-machine hardening and public tree/history review remain release checkpoints. Installer portability tests do not replace a final candidate's runtime acceptance.
+For another machine or a changed runtime/dependency tree, repeat the relevant portability and acceptance checks. Review the final tree/history before publication; the recorded Windows/Mac evidence applies to its tested builds and environments.
 
 ## Operating limits
 
