@@ -48,3 +48,22 @@ test("desktop-auto delegates each fresh resolution to verified Desktop discovery
     source: "windows-process-listener",
   });
 });
+
+test("Gateway desktop-auto uses official candidate discovery and never probes the legacy Host", async () => {
+  const resolver = createHostEndpointResolver(loadConfig({ DSH_HOST_MODE: "desktop-auto", DSH_HOST_PROTOCOL: "gateway" }),
+    async () => { assert.fail("legacy discovery must not run"); },
+    async () => ({ baseUrl: "http://127.0.0.1:24001", source: "windows-process-listener", desktopPids: [101], candidateCount: 1, protocolVerified: false }));
+  assert.deepEqual(await resolver.resolve(), { baseUrl: "http://127.0.0.1:24001", source: "windows-process-listener" });
+});
+
+test("Gateway desktop-auto forwards the authorization origin only as a discovery constraint", async () => {
+  const authorizedOrigin = "http://127.0.0.1:24002";
+  const resolver = createHostEndpointResolver(loadConfig({ DSH_HOST_MODE: "desktop-auto", DSH_HOST_PROTOCOL: "gateway",
+    DSH_CONNECT_ORIGIN: authorizedOrigin }),
+    async () => { assert.fail("legacy discovery must not run"); },
+    async (options) => {
+      assert.deepEqual(options, { authorizedOrigin });
+      return { baseUrl: authorizedOrigin, source: "macos-process-listener", desktopPids: [101], candidateCount: 2, protocolVerified: false };
+    });
+  assert.deepEqual(await resolver.resolve(), { baseUrl: authorizedOrigin, source: "macos-process-listener" });
+});

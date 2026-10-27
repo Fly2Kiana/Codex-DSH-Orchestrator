@@ -5,15 +5,15 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { BridgeService } from "./bridge-service.js";
 import { loadConfig } from "./config.js";
 import { DshConnectionManager } from "./connection-manager.js";
-import { DshClient } from "./dsh-client.js";
+import { createDshApi } from "./dsh-api-factory.js";
 import { EventLedger } from "./event-ledger.js";
-import { configuredHostLabel, createHostEndpointResolver } from "./host-endpoint.js";
+import { configuredHostLabel } from "./host-endpoint.js";
 import { createMcpServer } from "./mcp-server.js";
 import { TaskStore } from "./task-store.js";
 
 async function main() {
   const config = loadConfig();
-  const api = new DshClient(createHostEndpointResolver(config), config.requestTimeoutMs);
+  const api = createDshApi(config);
   const tasks = new TaskStore(config.homeDir);
   const ledger = new EventLedger(config.homeDir);
   const connection = new DshConnectionManager(config, api, tasks, ledger);
@@ -25,6 +25,7 @@ async function main() {
   const shutdown = async () => {
     shutdownPromise ??= (async () => {
       await connection.stop().catch(() => undefined);
+      api.close?.();
       await server.close().catch(() => undefined);
     })();
     await shutdownPromise;

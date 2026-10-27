@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from "node:util";
 
 import type { BridgeConfig } from "./config.js";
 import { DshRpcError, DshTransportError, getHostEndpointSnapshot } from "./dsh-client.js";
+import { GatewayConnectionError, type GatewayFailureDiagnostic } from "./gateway-connection.js";
 import type { EventLedger, LedgerSnapshot } from "./event-ledger.js";
 import type {
   DshApi,
@@ -20,7 +21,8 @@ import type { TaskRecord, TaskStore } from "./task-store.js";
 
 export const TESTED_DSH_VERSION = "0.1.0-rc.6";
 
-export type HostAvailability = "connecting" | "connected" | "host_unreachable" | "stopped";
+export type HostAvailability = "connecting" | "connected" | "host_unreachable" | "stopped"
+  | "auth_required" | "auth_rejected" | "unsupported_protocol" | "peer_conflict";
 
 export interface HostConnectionSnapshot {
   availability: HostAvailability;
@@ -31,10 +33,12 @@ export interface HostConnectionSnapshot {
   disconnectedAt?: string;
   hostDescribeProductVersion?: string;
   declaredDshVersion?: string;
-  testedAgainstDshVersion: typeof TESTED_DSH_VERSION;
+  testedAgainstDshVersion: typeof TESTED_DSH_VERSION | null;
+  testedProtocolContract?: string;
   compatibility: "capability-probed" | "untested" | "unknown";
   warning?: string;
   lastError?: string;
+  diagnostic?: GatewayFailureDiagnostic;
   description?: DshHostDescription;
   capabilities: {
     unaryRpc: boolean;
@@ -46,6 +50,8 @@ export interface HostConnectionSnapshot {
     typedRespond: boolean;
     pendingReplayReconciliation: "stable-rpcid-baseline-idle";
     subagentHistory: boolean | "not-probed";
+    timedQuestions?: boolean;
+    subagentModeDiscovery?: boolean;
   };
 }
 
@@ -294,7 +300,7 @@ export class DshConnectionManager implements DshConnection {
       baseUrl: endpoint.resolvedBaseUrl ?? endpoint.configuredBaseUrl ?? null,
       connectionEpoch: 0,
       revision: 0,
-      testedAgainstDshVersion: TESTED_DSH_VERSION,
+      testedAgainstDshVersion: config.hostProtocol === "gateway" ? null : TESTED_DSH_VERSION,
       compatibility: "unknown",
       ...(config.declaredDshVersion === undefined ? {} : { declaredDshVersion: config.declaredDshVersion }),
       capabilities: {
@@ -370,12 +376,23 @@ export class DshConnectionManager implements DshConnection {
       this.queues.delete(sessionId);
     }
     await this.resolveSubagentAddresses();
+    this.api.trackSessions?.([...this.lineage.values()].flatMap((rows) => rows
+      .filter((row) => row.origin === "root").map((row) => row.sessionId)));
     if (lineageSignature(this.lineage) !== before) this.bumpRevision();
   }
 
   async reconcileTask(taskId: string): Promise<void> {
     const before = await this.ledger.snapshot(taskId);
     const rows = this.lineage.get(taskId) ?? [];
+    if (this.api.protocolCapabilities?.forceFreshHistoryCut) {
+      // Gateway follow snapshots name a cut, not a permanent resume frontier.
+      // An explicit status reconciliation must obtain a fresh cut before an
+      // idle list row can be interpreted as interruption of an observed turn.
+      for (const row of rows) {
+        const runtime = this.sessions.get(row.sessionId);
+        if (runtime) delete runtime.subscribedLastSeq;
+      }
+    }
     await Promise.all(rows.map((row) => this.reconcileSession(row.sessionId, this.controller?.signal)));
     const after = await this.ledger.snapshot(taskId);
     if (after.cursor > before.cursor) this.bumpRevision(taskId);
@@ -508,6 +525,10 @@ export class DshConnectionManager implements DshConnection {
       } catch (error) {
         if (signal.aborted) break;
         await this.onDisconnected(error);
+        if (error instanceof GatewayConnectionError &&
+            ["auth_required", "auth_rejected", "unsupported_protocol", "peer_conflict"].includes(error.code)) {
+          return; // Explicit operator action, not background credential/token retry.
+        }
         await sleep(this.reconnectDelayMs, signal);
         if (!signal.aborted) this.setState({ ...this.state, availability: "connecting" });
       }
@@ -538,8 +559,14 @@ export class DshConnectionManager implements DshConnection {
       });
     }
     const declaredVersion = this.config.declaredDshVersion;
-    const compatibility = declaredVersion === TESTED_DSH_VERSION ? "capability-probed" : "untested";
-    const warnings = [
+    const gateway = this.config.hostProtocol === "gateway";
+    const protocolContract = gateway && typeof description.protocolContract === "string" ? description.protocolContract : undefined;
+    const compatibility = !gateway && declaredVersion === TESTED_DSH_VERSION ? "capability-probed" : "untested";
+    const warnings = gateway ? [
+      "Official Harness Gateway wire compatibility does not verify the installed Desktop/core version or live model behavior",
+      declaredVersion === undefined ? "Installed DSH product version is unknown to the bridge"
+        : `Operator-declared DSH version ${declaredVersion} has not been verified by the Gateway`,
+    ] : [
       declaredVersion === undefined
         ? `DSH CLI/package version is unknown to the bridge runtime; only ${TESTED_DSH_VERSION} was locally verified`
         : declaredVersion === TESTED_DSH_VERSION
@@ -560,7 +587,8 @@ export class DshConnectionManager implements DshConnection {
       revision: this.state.revision,
       connectedAt: new Date().toISOString(),
       hostDescribeProductVersion: description.version,
-      testedAgainstDshVersion: TESTED_DSH_VERSION,
+      testedAgainstDshVersion: gateway ? null : TESTED_DSH_VERSION,
+      ...(protocolContract === undefined ? {} : { testedProtocolContract: protocolContract }),
       compatibility,
       warning: warnings.join("; "),
       ...(this.config.declaredDshVersion === undefined ? {} : { declaredDshVersion: this.config.declaredDshVersion }),
@@ -569,7 +597,9 @@ export class DshConnectionManager implements DshConnection {
         ...this.state.capabilities,
         unaryRpc: true,
         eventsMuxWebSocket: true,
-        queueSnapshot: true,
+        queueSnapshot: this.api.protocolCapabilities?.queueSnapshot ?? true,
+        ...(this.api.protocolCapabilities?.timedQuestions === undefined ? {} : { timedQuestions: this.api.protocolCapabilities.timedQuestions }),
+        ...(this.api.protocolCapabilities?.subagentModeDiscovery === undefined ? {} : { subagentModeDiscovery: this.api.protocolCapabilities.subagentModeDiscovery }),
       },
     });
     const fallback = setTimeout(() => {
@@ -589,11 +619,16 @@ export class DshConnectionManager implements DshConnection {
     for (const [sessionId, snapshot] of this.queues) {
       this.queues.set(sessionId, { ...snapshot, known: false, stale: true });
     }
+    const { diagnostic: _previousDiagnostic, ...previousState } = this.state;
     this.setState({
-      ...this.state,
-      availability: "host_unreachable",
+      ...previousState,
+      availability: error instanceof GatewayConnectionError &&
+        (error.code === "auth_required" || error.code === "auth_rejected" || error.code === "unsupported_protocol" || error.code === "peer_conflict")
+        ? error.code : "host_unreachable",
       disconnectedAt: new Date().toISOString(),
       lastError: errorText(error),
+      ...(error instanceof GatewayConnectionError && error.diagnostic !== undefined
+        ? { diagnostic: { stage: error.diagnostic.stage, reason: error.diagnostic.reason } } : {}),
     });
     if (error instanceof DshRpcError) {
       await Promise.all(
@@ -727,6 +762,10 @@ export class DshConnectionManager implements DshConnection {
       try {
         recovered = await this.readMissingHistory(runtime, highWatermark, signal);
       } catch (error) {
+        if (runtime.lineage.origin === "root" && this.api.protocolCapabilities?.forceFreshHistoryCut &&
+            this.api.protocolCapabilities.queueSnapshot && this.invalidateQueueView(sessionId)) {
+          this.bumpRevision(runtime.taskId);
+        }
         if (error instanceof DshTransportError || signal?.aborted === true) throw error;
         if (runtime.lineage.origin === "root" && error instanceof DshRpcError && error.code === "session-not-found") {
           await this.drainBuffer(runtime);
@@ -805,6 +844,16 @@ export class DshConnectionManager implements DshConnection {
         runtime.lineage.origin === "root"
           ? await this.api.sessionHistory(runtime.lineage.sessionId, options, signal)
           : await this.readSubagentHistory(runtime, options, signal);
+      if (runtime.lineage.origin === "root" && this.api.protocolCapabilities?.queueSnapshot &&
+          history.queueSnapshot !== undefined) {
+        let queueChanged: boolean;
+        if (history.queueSnapshot === null) {
+          queueChanged = this.invalidateQueueView(runtime.lineage.sessionId);
+        } else {
+          queueChanged = this.updateQueueView(runtime.lineage.sessionId, history.queueSnapshot);
+        }
+        if (queueChanged) this.bumpRevision(runtime.taskId);
+      }
       for (const entry of history.events) {
         if (entry.event.seq > highWatermark) recovered.push(entry);
       }
@@ -857,6 +906,13 @@ export class DshConnectionManager implements DshConnection {
       updatedAt: new Date().toISOString(),
       items: structuredClone(items),
     });
+    return changed;
+  }
+
+  private invalidateQueueView(sessionId: string): boolean {
+    const changed = this.queues.get(sessionId)?.known === true;
+    this.queues.set(sessionId, { known: false, stale: false,
+      connectionEpoch: this.state.connectionEpoch, items: [] });
     return changed;
   }
 

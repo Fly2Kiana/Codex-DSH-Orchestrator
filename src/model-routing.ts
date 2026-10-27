@@ -25,7 +25,7 @@ const profileRoutes: Record<Exclude<ModelProfile, "inherit">, { provider: string
 
 export class ModelRoutingError extends Error {
   constructor(
-    readonly code: "profile_unavailable" | "reasoning_effort_unsupported" | "selection_mismatch",
+    readonly code: "profile_unavailable" | "profile_ambiguous" | "vision_capability_unverified" | "reasoning_effort_unsupported" | "selection_mismatch",
     message: string,
     readonly details: Record<string, unknown> = {},
   ) {
@@ -34,12 +34,41 @@ export class ModelRoutingError extends Error {
   }
 }
 
+function verifiedImageInput(provider: string, model: DshSessionModels["groups"][number]["models"][number]): boolean {
+  if (model.inputModalities !== undefined) return model.inputModalities.includes("image");
+  // The historic exception is an exact verified provider/model pair, not an
+  // inference from any provider advertising the same model id.
+  return provider === "deepseek-official" && model.id === "deepseek-v4-flash-vision-exp";
+}
+
+function profileRoute(catalog: DshSessionModels, profile: ModelProfile): { provider: string; model: string } {
+  if (profile === "inherit") return catalog.current;
+  if (profile === "modlens-flash" || profile === "modlens-pro") return profileRoutes[profile];
+  const officialProviders = ["deepseek-official", "deepseek-account"];
+  // Account and API-key routes are distinct billing/authentication boundaries.
+  // Keep the current official provider; never silently cross to the other one.
+  const providers = officialProviders.includes(catalog.current.provider)
+    ? [catalog.current.provider] : officialProviders;
+  const ids = profile === "pro" ? ["deepseek-v4-pro"]
+    : profile === "flash" ? ["deepseek-flash", "deepseek-v4-flash"]
+    : ["deepseek-flash", "deepseek-v4-flash-vision-exp"];
+  const routes = catalog.groups.filter((group) => providers.includes(group.id)).flatMap((group) => {
+    const candidates = ids.flatMap((id) => group.models.filter((model) => model.id === id));
+    const model = profile === "official-flash-vision"
+      ? candidates.find((model) => verifiedImageInput(group.id, model)) ?? candidates[0] : candidates[0];
+    return model === undefined ? [] : [{ provider: group.id, model: model.id }];
+  });
+  if (routes.length > 1) throw new ModelRoutingError("profile_ambiguous",
+    `model profile ${profile} is offered by multiple official providers; select a provider in DSH first`, { profile });
+  return routes[0] ?? { provider: providers[0]!, model: ids[0]! };
+}
+
 export function resolveModelSelection(
   catalog: DshSessionModels,
   profile: ModelProfile,
   requestedReasoningEffort?: string,
 ): DshModelSelection {
-  const route = profile === "inherit" ? catalog.current : profileRoutes[profile];
+  const route = profileRoute(catalog, profile);
   const group = catalog.groups.find((candidate) => candidate.id === route.provider);
   const model = group?.models.find((candidate) => candidate.id === route.model);
   if (group === undefined || model === undefined) {
@@ -54,6 +83,15 @@ export function resolveModelSelection(
         providerFailures: catalog.failures,
       },
     );
+  }
+
+  // The Gateway's modelCatalog currently omits modalities. Never manufacture
+  // a positive image capability from "Flash"/"Vision" in a display name.
+  // Keep the exact previously verified legacy vision route for compatibility.
+  if (profile === "official-flash-vision" &&
+      !verifiedImageInput(route.provider, model)) {
+    throw new ModelRoutingError("vision_capability_unverified",
+      `image input capability is not verified for ${route.provider}/${route.model}`, { profile, ...route });
   }
 
   const reasoningEffort = requestedReasoningEffort ?? model.reasoning?.defaultEffort;
@@ -227,6 +265,9 @@ export function classifyRouteFailure(error: unknown): RouteFailureClass {
         return "model_missing";
       case "reasoning_effort_unsupported":
         return "invalid_input";
+      case "profile_ambiguous":
+      case "vision_capability_unverified":
+        return "configuration_error";
       case "selection_mismatch":
         return "selection_mismatch";
     }

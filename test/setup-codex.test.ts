@@ -38,6 +38,17 @@ const desktopAutoBlock = renderMcpConfig({
   preset: "code",
 });
 
+test("official Gateway setup forwards only a named token environment variable and keeps human approval", () => {
+  const block = renderMcpConfig({ nodePath: "/node", entryPath: "/bridge/dist/index.js", hostMode: "desktop-auto", hostProtocol: "gateway" });
+  assert.match(block, /DSH_HOST_PROTOCOL = "gateway"/);
+  assert.match(block, /env_vars = \["DSH_CONNECT_TOKEN", "DSH_CONNECT_ORIGIN"\]/);
+  assert.match(block, /approval_mode = "prompt"/);
+  assert.equal(block.includes("DSH_CONNECT_TOKEN ="), false);
+  assert.equal(block.includes("DSH_CONNECT_ORIGIN ="), false);
+  assert.equal(parseSetupArgs(["--gateway", "--desktop-auto"]).gateway, true);
+  assert.throws(() => parseSetupArgs(["--gateway"]), /--desktop-auto or --host/);
+});
+
 test("setup renders one safe stdio MCP block with human-gated approval", () => {
   assert.match(block, /command = "\/Applications\/Node Runtime\/bin\/node"/);
   assert.match(block, /args = \["\/tmp\/dsh Agentlink\/dist\/index.js"\]/);
@@ -330,6 +341,14 @@ test("desktop auto setup rejects unsupported operating systems before installati
   assert.doesNotThrow(() => validateDesktopAutoPlatform("desktop-auto", "win32"));
   assert.doesNotThrow(() => validateDesktopAutoPlatform("static", "linux"));
   assert.throws(() => validateDesktopAutoPlatform("desktop-auto", "linux"), /supported only on Windows/);
+});
+
+test("macOS desktop-auto setup is allowed only for the official Gateway without weakening legacy checks", () => {
+  assert.doesNotThrow(() => validateDesktopAutoPlatform("desktop-auto", "darwin", "gateway"));
+  assert.doesNotThrow(() => validateDesktopAutoPlatform("desktop-auto", "win32", "gateway"));
+  assert.throws(() => validateDesktopAutoPlatform("desktop-auto", "darwin", "legacy"), /supported only on Windows/);
+  assert.throws(() => validateDesktopAutoPlatform("desktop-auto", "linux", "gateway"), /Windows or macOS/);
+  assert.doesNotThrow(() => validateDesktopAutoPlatform("static", "linux", "gateway"));
 });
 
 test("setup resolves the Codex config root without repurposing the environment", () => {

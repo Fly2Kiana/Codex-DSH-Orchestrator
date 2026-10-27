@@ -2,81 +2,101 @@
 
 **English** | [简体中文](manual-configuration.zh-CN.md)
 
-Use this guide only when the setup wizard cannot edit your Codex configuration or when you need advanced environment overrides.
+Prefer setup's preview and replacement checks. Manual configuration is useful when the installer cannot write the selected file or you need explicit environment overrides.
 
-Codex reads MCP servers from `~/.codex/config.toml` by default, or from `$CODEX_HOME/config.toml` when that environment variable already points to a custom Codex home. Back up the file before editing it. The official [Codex MCP documentation](https://developers.openai.com/codex/mcp) also describes app, CLI, and TOML configuration.
+Codex normally uses `~/.codex/config.toml`; an existing `CODEX_HOME` changes that root. Back up the file and preserve unrelated servers. See [Codex MCP](https://learn.chatgpt.com/docs/extend/mcp).
 
-## Build and resolve paths
+## Build and locate the entry point
 
-From the repository:
-
-```bash
-npm install
+```sh
+npm ci
 npm run build
-command -v node
-pwd
 ```
 
-Use the absolute Node.js path and append `/dist/index.js` to the absolute repository path.
+Use the actual absolute Node executable and checkout's `dist/index.js`. On PowerShell, `(Get-Command node).Source` locates Node; on macOS, use `command -v node`. Keep both paths stable.
 
-## Add the MCP server
+## Official Desktop on Windows or macOS
 
 ```toml
 [mcp_servers.dsh_agentlink]
 command = "/absolute/path/to/node"
-args = ["/absolute/path/to/dsh-Agentlink/dist/index.js"]
+args = ["/absolute/path/to/Codex-DSH-Orchestrator/dist/index.js"]
+env_vars = ["DSH_CONNECT_TOKEN", "DSH_CONNECT_ORIGIN"]
 
 [mcp_servers.dsh_agentlink.env]
-DSH_HOST_URL = "http://127.0.0.1:3080"
-DSH_HOST_VERSION = "0.1.0-rc.6"
-DSH_BRIDGE_AGENT_PRESET = "code"
+DSH_HOST_PROTOCOL = "gateway"
+DSH_HOST_MODE = "desktop-auto"
 
 [mcp_servers.dsh_agentlink.tools.dsh_resolve_approval]
 approval_mode = "prompt"
 ```
 
-For Windows DSH Desktop automatic discovery, replace the `DSH_HOST_URL` line above with the following line; never configure both:
+The equivalent installer preview is:
+
+```sh
+npm run setup -- --yes --gateway --desktop-auto --no-preset --dry-run
+```
+
+Omit static `DSH_HOST_URL`, old version declarations and preset overrides for this setup. The in-memory `DSH_CONNECT_ORIGIN` binds authorization to an OS-owned listener; it is not a static endpoint override. If an explicit URL is configured, runtime selects static mode instead.
+
+Setup forwards authorization variable names. The private startup handoff supplies their values to a new Codex process; use the [operator startup guide](official-desktop-gateway.md#operator-startup). Those steps start apps and require an agreed downtime window. A provider API key does not replace Gateway launch authorization.
+
+For a deliberately static official Gateway, replace `DSH_HOST_MODE` with `DSH_HOST_URL = "http://127.0.0.1:3080"` and use the actual authorized origin. The installer accepts `--gateway --host <origin> --no-preset`.
+
+## Skill scope and reload
+
+The installer copies `skill/codex-dsh-orchestrator/SKILL.md` and `agents/openai.yaml`. Its default is repository scope at `.agents/skills/codex-dsh-orchestrator/`. Choose `--skill-path "$HOME/.agents/skills/codex-dsh-orchestrator"` for a user-wide installation. Existing global installs at `~/.codex/skills` can be updated in place; use one discoverable copy per name.
+
+A conflicting MCP entry requires `--replace`; conflicting Skill content requires `--replace-skill`. Review them separately. The installer checks symlink/non-file targets and creates replacement backups. It can report partial success, so inspect both outputs before retrying.
+
+After editing MCP configuration, reload the caller during an agreed window and confirm `/mcp` or Settings. Confirm Skill discovery separately with `/skills` or explicit `$codex-dsh-orchestrator`. Keep `approval_mode = "prompt"` for `dsh_resolve_approval`.
+
+If `dsh_collab` exists, preview migration with the chosen protocol and review `--replace`; retain one `dsh_agentlink` entry. Preserve backups for rollback and check later edits before restoring them.
+
+## Environment reference
+
+| Variable | Meaning |
+| --- | --- |
+| `DSH_HOST_PROTOCOL` | `legacy` default, or explicit `gateway` |
+| `DSH_HOST_MODE` | `static` default; official `desktop-auto` supports Windows/macOS, legacy discovery supports Windows |
+| `DSH_HOST_URL` | Static origin; defaults to loopback port 3080 and overrides auto mode when explicitly set |
+| `DSH_CONNECT_TOKEN` | Gateway authorization from the private caller environment; keep its value out of files and prompts |
+| `DSH_CONNECT_ORIGIN` | Bound authorization origin, also constrains official automatic discovery |
+| `DSH_CONNECT_TOKEN_ENV` | Optional runtime variable-name override; setup uses the standard name |
+| `DSH_HOME` | Base home for deriving bridge state, default `~/.dsh` |
+| `DSH_BRIDGE_HOME` | Local coordination home, default `~/.dsh/codex-bridge` |
+| `DSH_REQUEST_TIMEOUT_MS` | Unary/connect timeout, default 30000 ms; not a task deadline |
+| `DSH_BRIDGE_AGENT_PRESET` | Optional composition/preset override; omit to follow DSH |
+| `DSH_BRIDGE_TIME_ZONE` | Optional IANA time zone for prompts |
+| `DSH_HOST_VERSION` | Optional operator declaration, kept separate from verified product/wire evidence |
+| `DSH_APPROVAL_TIMEOUT_MS` | Optional best-effort approval rejection timer while connected, disabled by default; timed questions remain separate |
+| `DSH_ALLOW_REMOTE_HOST=true` | Explicit trust for a non-loopback static deployment |
+
+Read-only doctor reports lock structure under the selected home and leaves locks intact. Gateway admission remains `not_probed`; a separately approved `dsh_host_status` can authenticate and open an API Peer.
+
+Routing inherits unless the caller provides policy/profile fields. Selection and effort require current catalog evidence, and explicit selection may persist as the DSH default. Workspace claims coordinate bridge activity; DSH enforces its own filesystem permissions. See [Gateway capabilities](official-desktop-gateway.md#models-and-capabilities).
+
+## Legacy Host
+
+The legacy protocol targets the previously tested DSH CLI `0.1.0-rc.6` Web Host and community Windows Desktop. It is a separate adapter.
 
 ```toml
-DSH_HOST_MODE = "desktop-auto"
+[mcp_servers.dsh_agentlink]
+command = "/absolute/path/to/node"
+args = ["/absolute/path/to/Codex-DSH-Orchestrator/dist/index.js"]
+
+[mcp_servers.dsh_agentlink.env]
+DSH_HOST_PROTOCOL = "legacy"
+DSH_HOST_URL = "http://127.0.0.1:3080"
+
+[mcp_servers.dsh_agentlink.tools.dsh_resolve_approval]
+approval_mode = "prompt"
 ```
 
-The setup equivalent is `npm run setup -- --desktop-auto`. Updating an existing bridge entry requires reviewed `--replace` approval. Desktop mode can proceed when `dsh` is not on `PATH`; setup then omits `DSH_HOST_VERSION`, capability-probes the running Desktop Host, and reports package-version compatibility as unverified.
+Static setup requires `dsh --version`; Windows community Desktop can use `npm run setup -- --desktop-auto --no-preset`. That discovery inspects exact `DSH Desktop.exe` owners and verifies loopback candidates with `host.describe`. Official Desktop instead needs `--gateway`.
 
-Keep `approval_mode = "prompt"`: a DSH approval can authorize a sandbox escalation, so `allow_once` must remain human-gated.
+The legacy rc.6 Web API has no token authentication. Its `host.describe.version` placeholder `0.0.1` is not a package version. Start/login remain operator actions. If you choose to start that legacy CLI Host yourself, `dsh web --host 127.0.0.1 --port 3080` starts it; `npm run doctor` then performs the legacy capability check.
 
-Restart the Codex desktop app, restart the IDE extension, or exit and reopen the CLI after changing the file. Then use `/mcp` or Codex Settings to confirm that `dsh_agentlink` is connected.
+Preserve failed or oversized bridge state for diagnosis; a fresh home starts new mappings/cursors/claims. See [Known issues](../KNOWN_ISSUES.md) before any lock cleanup.
 
-If an earlier installation still uses `dsh_collab`, do not keep both entries: run `npm run setup -- --replace` after reviewing the generated block. The setup command removes the legacy tables and writes one `dsh_agentlink` entry while preserving unrelated MCP servers.
-
-## Environment variables
-
-- `DSH_HOST_URL` — official Web Host origin; default `http://127.0.0.1:3080`
-- `DSH_HOST_MODE` — `static` (default) or opt-in `desktop-auto` on Windows. `desktop-auto` inspects only listeners owned by an exact `DSH Desktop.exe` process, accepts loopback only, verifies candidates with `host.describe`, and refuses zero or multiple verified Hosts. It does not scan ports or start/stop Desktop. Omit `DSH_HOST_URL` to use it; an explicit URL always selects `static` mode.
-- `DSH_HOME` — DSH home used to derive the bridge home; default `~/.dsh`
-- `DSH_BRIDGE_HOME` — override for task mappings, workspace claims, and the coordination index
-- `DSH_REQUEST_TIMEOUT_MS` — unary and WebSocket-connect timeout; default 30 seconds
-- `DSH_BRIDGE_AGENT_PRESET` — optional installed DSH agent preset; omit it to follow DSH's own default. This selects DSH agent composition, not a workspace claim or verified sandbox policy.
-- `DSH_BRIDGE_TIME_ZONE` — optional IANA time zone for human prompts
-- `DSH_HOST_VERSION` — optional operator-declared DSH package version; never inferred from `host.describe.version`
-- `DSH_APPROVAL_TIMEOUT_MS` — disabled by default; enables one best-effort rejection while the current bridge process and connection remain alive
-- `DSH_ALLOW_REMOTE_HOST=true` — explicitly opt in to a trusted non-loopback Host
-
-Delegation and follow-up accept only the semantic `inherit|flash|pro|official-flash-vision|modlens-flash|modlens-pro` profiles plus a live-catalog-supported reasoning effort; arbitrary provider/model strings are rejected. Omitting routing inherits and verifies DSH's current route. Explicit selection can persist as the DSH global default. For visual work, declare `visualIntent=required` with `complexity=low|high`: low complexity uses the official native Flash Vision; high complexity requires an explicit user choice between `official-flash-vision` and `modlens-pro`. Only the visual route selection/verification stage may retry, and only for timeout, unreachable Host, or HTTP 5xx; after those bounded retries, ModLens Flash is attempted once and disclosed at task end. Invalid input, missing models, protocol/configuration errors, and permission or credential refusals do not trigger fallback. If the visual policy fields are omitted, an explicitly supplied legacy `modlens-flash` profile remains accepted for compatibility; it is not the default visual route. `workspaceMode` is a bridge-local cooperative claim only; it does not select, enforce, or verify the DSH Host filesystem sandbox.
-
-## Host and version notes
-
-The bridge is connect-only: it never starts, daemonizes, stops, or owns `dsh web`. Start the Host yourself:
-
-```bash
-dsh web --host 127.0.0.1 --port 3080
-npm run doctor
-```
-
-DSH CLI `0.1.0-rc.6` is the current tested target. In rc.6, `host.describe.version` reports the placeholder product value `0.0.1`; it is not the CLI/package version. Doctor checks the CLI version and probes Host capabilities separately. It also reports the bridge's fail-closed lock locations under `DSH_BRIDGE_HOME` (`claims/registry.lock` and `ledgers/<task>/events.lock`) read-only and never cleans them. Lock diagnostics expose only structural presence/type and bounded `entriesObserved`/`entriesTruncated` observations; they never read `owner.json` content or report pid, token, or `createdAt`.
-
-The ingestion fix does not compact an existing 5 MB+ ledger. Preserve the old bridge home for inspection. If necessary, configure a separate `DSH_BRIDGE_HOME` for new delegations, understanding that bridge task ids, cursors, and claims begin fresh there. DSH `session.history` remains the authoritative conversation record. There is intentionally no automatic ledger or lock cleanup command.
-
-The rc.6 Web API has no auth token. Loopback-only is the safe default. A remote URL must be an explicitly trusted deployment and requires `DSH_ALLOW_REMOTE_HOST=true`.
-
-dsh-Agentlink is not a DSH Cordis bundle. Do not install it with `dsh plugin --profile ... add ...`.
+This is not a DSH Cordis bundle. Do not install it with `dsh plugin --profile ... add ...`.

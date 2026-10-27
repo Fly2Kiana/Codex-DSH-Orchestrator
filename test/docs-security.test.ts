@@ -19,7 +19,6 @@ test("public docs and skill preserve connect-only, approval, cancellation, and r
     "approval_mode = \"prompt\"",
     ".agents/skills/codex-dsh-orchestrator",
     "--replace-skill",
-    "zero exit code does not prove",
     "dsh_release_workspace",
     "workspace claim semantics",
     "compact handoff",
@@ -31,6 +30,8 @@ test("public docs and skill preserve connect-only, approval, cancellation, and r
   ]) {
     assert.equal(readme.includes(phrase), true, `README lost required safety phrase: ${phrase}`);
   }
+  // Preserve the separate acceptance results without requiring the old warning sentence.
+  assert.match(readme, /report\s+setup,?\s+connection\s+and\s+live[- ]task\s+results\s+separately/i);
   for (const phrase of [
     "approval_mode = \"prompt\"",
     "DSH_ALLOW_REMOTE_HOST=true",

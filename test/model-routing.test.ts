@@ -78,6 +78,68 @@ function catalog(): DshSessionModels {
   };
 }
 
+test("current official account Flash resolves by catalog id without silently substituting it for Pro", () => {
+  const models: DshSessionModels = {
+    current: { provider: "deepseek-account", model: "deepseek-flash", reasoningEffort: "high" },
+    routable: true, failures: [], groups: [{ id: "deepseek-account", name: "DeepSeek account", models: [
+      { id: "deepseek-flash", name: "DeepSeek-V4.1-Flash", reasoning: {
+        efforts: [{ id: "high", name: "High" }, { id: "max", name: "Max" }], defaultEffort: "high",
+      } },
+    ] }],
+  };
+  assert.deepEqual(resolveModelSelection(models, "flash", "max"), {
+    provider: "deepseek-account", model: "deepseek-flash", reasoningEffort: "max",
+  });
+  assert.throws(() => resolveModelSelection(models, "pro", "max"), { code: "profile_unavailable" });
+});
+
+test("official routing keeps the account boundary and refuses ambiguous providers", () => {
+  const models = catalog();
+  models.groups.push({ id: "deepseek-account", name: "Account", models: [{ id: "deepseek-flash", name: "Flash" }] });
+  models.current = { provider: "deepseek-account", model: "deepseek-flash" };
+  assert.deepEqual(resolveModelSelection(models, "flash"), { provider: "deepseek-account", model: "deepseek-flash" });
+  assert.throws(() => resolveModelSelection(models, "pro"), { code: "profile_unavailable" });
+  models.current = { provider: "deepseek-modlens", model: "deepseek-v4-flash" };
+  assert.throws(() => resolveModelSelection(models, "flash"), { code: "profile_ambiguous" });
+});
+
+test("current native Flash Vision requires explicit image capability rather than a model name", () => {
+  const models: DshSessionModels = {
+    current: { provider: "deepseek-account", model: "deepseek-flash" }, routable: true, failures: [],
+    groups: [{ id: "deepseek-account", name: "Account", models: [{ id: "deepseek-flash", name: "Flash Vision" }] }],
+  };
+  assert.throws(() => resolveModelSelection(models, "official-flash-vision"), { code: "vision_capability_unverified" });
+  models.groups[0]!.models[0]!.inputModalities = ["text"];
+  assert.throws(() => resolveModelSelection(models, "official-flash-vision"), { code: "vision_capability_unverified" });
+  models.groups[0]!.models[0]!.inputModalities = ["text", "image"];
+  assert.deepEqual(resolveModelSelection(models, "official-flash-vision"), {
+    provider: "deepseek-account", model: "deepseek-flash",
+  });
+  assert.equal(isForceMajeureFailure(new ModelRoutingError("vision_capability_unverified", "missing capability")), false);
+  assert.equal(isForceMajeureFailure(new ModelRoutingError("profile_ambiguous", "ambiguous provider")), false);
+});
+
+test("native visual routing prefers a verified same-provider route over an unverified newer Flash", () => {
+  const models = catalog();
+  models.groups[0]!.models.unshift({ id: "deepseek-flash", name: "Flash", inputModalities: ["text"] });
+  assert.equal(resolveModelSelection(models, "official-flash-vision").model, "deepseek-v4-flash-vision-exp");
+  models.groups[0]!.models[0]!.inputModalities = ["text", "image"];
+  assert.equal(resolveModelSelection(models, "official-flash-vision").model, "deepseek-flash");
+});
+
+test("the historic native vision exception cannot cross providers or override a text-only declaration", () => {
+  const models = catalog();
+  models.current = { provider: "deepseek-account", model: "deepseek-v4-flash-vision-exp" };
+  models.groups = [{ id: "deepseek-account", name: "Account", models: [
+    { id: "deepseek-v4-flash-vision-exp", name: "Vision" },
+  ] }];
+  assert.throws(() => resolveModelSelection(models, "official-flash-vision"), { code: "vision_capability_unverified" });
+  models.current.provider = "deepseek-official";
+  models.groups[0]!.id = "deepseek-official";
+  models.groups[0]!.models[0]!.inputModalities = ["text"];
+  assert.throws(() => resolveModelSelection(models, "official-flash-vision"), { code: "vision_capability_unverified" });
+});
+
 test("maps every semantic profile to an exact catalog route", () => {
   const expected: Record<Exclude<ModelProfile, "inherit">, { provider: string; model: string }> = {
     flash: { provider: "deepseek-official", model: "deepseek-v4-flash" },

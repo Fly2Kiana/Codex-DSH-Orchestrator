@@ -8,7 +8,7 @@ Codex-DSH-Orchestrator is a Codex-first orchestration layer and caller-side MCP 
 
 The project owns the Codex orchestration experience, caller-side handoff guidance, task supervision, session continuation decisions, and the shared bridge/runtime changes maintained in this derivative. It keeps the final decision, approval boundary, and independent verification in the primary caller.
 
-The repository does not start, stop, daemonize, or own the DSH Web Host. It is not an authentication boundary, does not automatically approve DSH requests, and is not a DSH Cordis bundle.
+The Runtime connects to an operator-managed Host. Official Gateway authorization comes from the user's private startup handoff; provider login and application lifecycle stay with the operator. DSH approvals require a human decision. The project is not a DSH Cordis bundle.
 
 ## Component map
 
@@ -37,7 +37,7 @@ Codex-DSH-Orchestrator is independent of DeepSeek, OpenAI, and the upstream main
 ## Caller support
 
 - Codex is the primary supported caller and uses skill/codex-dsh-orchestrator/ together with the shared bridge.
-- Claude Code is supported through the retained caller integration pack.
+- Claude Code retains its legacy project integration pack; the official Gateway path has no fresh Claude Code live qualification.
 - ZCode, OpenCode, Workbuddy, and other callers remain deferred until their host behavior and safety boundaries are verified.
 
 ## Safety boundary

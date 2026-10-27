@@ -48,6 +48,7 @@ const dshModelCatalogModelSchema = z
     id: nonEmptyString,
     name: nonEmptyString,
     description: z.string().optional(),
+    inputModalities: z.array(nonEmptyString).optional(),
     reasoning: z
       .object({
         efforts: z.array(dshModelReasoningEffortSchema).min(1),
@@ -145,7 +146,11 @@ export const dshSessionHistorySchema = z
   })
   .passthrough();
 
-export type DshSessionHistory = z.infer<typeof dshSessionHistorySchema>;
+export type DshSessionHistory = z.infer<typeof dshSessionHistorySchema> & {
+  /** Adapter-normalized exact pending inbox; null means unknown, not empty.
+   * Only consumed from an adapter advertising queueSnapshot capability. */
+  queueSnapshot?: DshQueuedInboxItem[] | null;
+};
 
 export const dshSessionListValueSchema = z
   .object({ items: z.array(dshSessionSummarySchema) })
@@ -445,6 +450,9 @@ export type DshSubagentAddress = {
 };
 
 export interface DshApi {
+  protocolCapabilities?: { queueSnapshot: boolean; forceFreshHistoryCut?: boolean; timedQuestions?: boolean; subagentModeDiscovery?: boolean };
+  trackSessions?(sessionIds: readonly string[]): void;
+  close?(): void;
   hostDescribe(signal?: AbortSignal): Promise<DshUnaryResult<DshHostDescription>>;
   sessionList(signal?: AbortSignal): Promise<DshUnaryResult<z.infer<typeof dshSessionListValueSchema>>>;
   sessionCreate(

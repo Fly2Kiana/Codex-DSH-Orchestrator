@@ -1,200 +1,131 @@
 # Validation guide
 
-This guide separates checks that can be repeated from a clean checkout from
-acceptance steps that require an operator and a live DSH Host. A passing local
-suite does not claim that a particular DSH installation, provider route, or
-desktop profile is available.
-
 ## Automated checks
 
-From a clean checkout, use the lockfile-driven install and run the same checks
-used by CI:
+From a clean checkout:
 
-```bash
+```sh
 npm ci
 npm run check
 npm pack --dry-run --ignore-scripts
+git diff --check
 ```
 
-The automated matrix covers GitHub-hosted Ubuntu, Windows, and macOS runners
-with Node.js 22 and 24. The macOS jobs validate the source build, test suite,
-and package dry run on the selected hosted runner; they do not establish APFS
-directory-fsync semantics, Intel/Apple Silicon parity, GUI-launched PATH
-behavior, or a live DSH Host/Codex setup. Node.js 22 is the project floor;
-other operating systems, architectures, and future Node.js majors need their
-own validation.
+The CI definition runs build, tests and package preview on Ubuntu/Windows/macOS with Node 22/24/26. Record results for the exact candidate SHA; a workflow definition or an older green run is not a result for a new dependency tree.
 
-The test suite uses mock DSH Hosts for deterministic coverage. It exercises
-bridge state, cursor recovery, event reduction, questions and approvals,
-cancellation, workspace claims, existing-session attachment, reconnection,
-MCP schemas, and model-routing policy without requiring a live model request.
+Tests use synthetic Hosts and inert caller fixtures. They cover MCP schemas, authorization handoff, process/listener inspection, Gateway admission, session attachment, durable observation, cancellation, questions/approvals, coordination locks and model routing. No inference is required.
+
+## Current evidence
+
+| Area | Evidence | Remaining check |
+| --- | --- | --- |
+| Runtime source `85fd145` | Windows Node 26.7.0: build and 298/298 tests; Mac Node 24.20.0: build, 297 passed and one Windows-only skip; all nine Ubuntu/Windows/macOS x Node 22/24/26 CI jobs passed; 119 expected package entries | A later documentation-only commit has not yet run remote CI; no runtime or dependency change is included in that refresh |
+| Official Windows Desktop, 2026-10-26 | Native startup, owned-listener discovery and Gateway admission; one inherited read-only task plus same-root follow-up completed; fixture unchanged and claim released | Historical task reconciliation retains an unrelated lock warning; Desktop session visibility and original pinned-icon grouping were not qualified |
+| Apple Silicon Mac, 2026-10-27 | Controlled-start `85fd145`, Gateway admission and one inherited read-only task plus same-root follow-up completed; fixture unchanged and final claim released | Intel live parity and Desktop session visibility remain unverified; first reply included one extra confirmation sentence |
+| rc.3 contract | Scoped source comparison plus synthetic dynamic-catalog, effort and rejection regressions | Real rc.3 account/catalog availability |
+| Vision/ModLens | Automated route policy and failure behavior | Current provider/tool execution and visual completion |
+
+The qualified runtime source is `85fd1451d4c8ac1e3234e4ec8237f49d58545e97`, tree `3c48cefe7f9511b512369e36b6dbe9a69ba27cf2`. Windows exercised installed `26f22a5807e374ffa1de761644b19dde84aac9e1`: all 93 built runtime files were byte-identical to `85fd145`, with the same lockfile and canonical Skill. Mac exercised the exact `85fd145` installation. Subsequent publication-document changes do not change those runtime identities.
+
+Recorded environments:
+
+| Component | Windows | Apple Silicon Mac |
+| --- | --- | --- |
+| Node / npm | 26.7.0 x64 / 11.19.0 | 24.20.0 arm64 / 11.19.0 |
+| Codex app metadata | OpenAI.Codex 26.1021.3705.0 | 26.1021.31345, bundle build 21828 |
+| Official Desktop bundle | 0.2.1-rc.2 | 0.2.1-rc.2 |
+| Packaged core metadata | 0.2.1-rc.2 | Not independently sampled |
+
+These are recorded installation metadata, not guarantees about later automatic updates. Mac hardware/OS were reported as M5 Max and macOS 26.5.1. A wire-reference label does not establish the running core version.
+
+Both smokes used `inherit` and reported `deepseek-official/deepseek-flash/high` with `persistsAsDshDefault=false`. No unexpected model selection, visual fallback, pending interaction or automatic approval occurred. Source, build, configuration and Skill stayed unchanged. Two prompts were submitted per qualified run; provider-internal inference counts, billing and cache hits were not exposed.
+
+On Mac, the first answer correctly described the manifest but added a confirmation sentence beyond the requested three lines. After an early claim release, one metadata lookup and an exact-root read-only attach reacquired that same mapping without a prompt or model selection. The single follow-up completed on the original root. This qualifies communication and read-only continuation, not exact-format compliance. Earlier Mac attempts retaining a pre-installation connection are excluded from the alpha.6 evidence.
+
+The Mac user observed one original Dock icon; Windows direct startup showed a separate taskbar group. Manual Desktop session visibility, Intel live parity, filesystem crash behavior, current visual providers and broader question/approval/cancel flows remain outside these smokes.
+
+Private Review CI covered the exact runtime source; CodeQL was unavailable because code scanning was not enabled there. The later public candidate still needs its applicable CI/CodeQL review.
 
 ## Visual routing validation
 
-The visual-routing policy is validated at the model-routing, bridge-service, event-ledger,
-MCP-contract, and skill-instruction boundaries:
+The automated contract covers:
 
-- Non-visual routine work keeps the Flash route; non-visual difficult work
-  keeps the Pro route.
-- Low-complexity visual work selects the official native Flash Vision route.
-- High-complexity visual work requires an explicit user choice between the
-  official Flash Vision route and ModLens Pro. Without that choice, the bridge
-  fails closed before sending a prompt.
-- ModLens Flash is never a first-choice visual route. After the approved visual
-  route exhausts bounded retries caused only by timeout, an unreachable Host,
-  or HTTP 5xx, the bridge attempts ModLens Flash once.
-- Invalid input, missing models, protocol or configuration errors, permission
-  failures, credential rejections, and prompt-write failures do not trigger
-  the fallback.
-- A successful fallback returns a short non-sensitive notice and a minimal
-  `dsh_status.visualFallback` coordination marker. The caller should briefly
-  tell the user at task completion.
-- When visual policy fields are omitted, an explicitly supplied legacy
-  `modelProfile="modlens-flash"` remains compatible; this does not make that
-  route the default for new visual requests.
-- A failed initial prompt or follow-up does not persist a fallback marker.
+- Non-visual low/high complexity selects Flash/Pro when no explicit profile is supplied.
+- Visual low selects official Flash Vision with exact image-capability evidence; high asks for an explicit choice between that route and ModLens Pro.
+- ModLens Flash is never a first-choice route under declared visual policy. Selection/verification can make three attempts for qualifying timeout, unreachable-Host or HTTP 5xx failures, then one ModLens Flash fallback attempt.
+- Cancellation, invalid input, missing models/efforts, provider ambiguity, permissions, credentials, protocol/configuration errors and prompt-write failures do not trigger fallback.
+- Fallback results provide a short notice and a `dsh_status.visualFallback` marker. A failed prompt does not persist a success marker.
+- Omitting visual-policy fields preserves an explicitly supplied legacy `modelProfile="modlens-flash"`.
+- Text prompts carry DSH-accessible image paths; image bytes are not uploaded by the bridge.
 
-The tests also verify that the bridge transports text prompts only. For visual
-work, the caller supplies image paths that the DSH Host and the selected tool
-can access; the bridge does not upload image bytes.
+The official rc.3 session catalog omits modalities. A model name alone cannot authorize image input. The separately scoped legacy vision exception and Code Mode instructions are described in [Gateway capabilities](official-desktop-gateway.md#models-and-capabilities).
 
-## Public-surface and package checks
+## rc.3 catalog regressions
 
-Before a release candidate is staged, inspect the tracked tree and the package
-dry-run inventory. Public files must not contain credentials, personal email
-addresses, local absolute paths, private bridge state, task or session
-identifiers, internal backup references, or agent-only maintenance directives.
+`test/rc3-model-contract.test.ts` exercises the real adapter against a synthetic Gateway:
 
-The public-surface regression test checks the project identity, upstream
-attribution, license and repository metadata, installation guidance, related
-project links, and the absence of machine-specific or internal-maintenance
-content. Keep environment-specific observations in private operator notes,
-not in the public repository.
+- Fresh session projections take precedence over the global default.
+- Model withdrawal/restoration and changing effort availability are reflected on the next read.
+- An available API-key Pro cannot replace a missing account Pro.
+- Current/legacy Flash IDs retain their exact provider, and unadvertised efforts are rejected.
+- `CLIENT_UPGRADE_REQUIRED`, `MODEL_UNSUPPORTED`, permission and configuration rejections at selection or prompting cause no replay or ModLens switch; raw provider details stay out of errors.
+- Withdrawal after an accepted selection prevents prompting even when the projection still matches.
 
-The package remains source-only and `private: true`. A successful pack dry run
-does not publish to npm and does not prove that a live DSH or Codex installation
-is available.
+These injections qualify bridge behavior at an RPC boundary, not the exact error shape produced by every provider deployment. The adapter retains its rc.2 wire qualification label separately from actual product-version evidence.
 
-## Fresh checkout and portability boundary
+## Installation and portability
 
-- Prefer `npm ci` for validation. Use `npm install` only when intentionally
-  changing the lockfile.
-- Use a fresh clone on another machine. Do not copy one worktree as an
-  installation package; on the same machine, create a new worktree from the
-  source clone.
-- Keep the checkout in a stable tools directory. Setup records the Node.js
-  executable and built bridge entry point in the caller configuration, so a
-  move, Node.js change, or worktree change requires a rebuild and setup again.
-- Codex setup has two outputs: the MCP entry in the selected Codex TOML file
-  and the shipped skill files under the selected skill target. By default,
-  `npm run setup` installs `SKILL.md` and `agents/openai.yaml`; `--no-skill`
-  opts out, `--skill-path <dir>` selects another target, and `--replace-skill`
-  is required for conflicting files. After restarting Codex, verify both the
-  MCP entry and the installed skill. Setup success alone does not prove caller
-  trust, DSH login, permissions, or end-to-end execution.
-- Keep `DSH_BRIDGE_HOME` on a reliable local filesystem. An independently
-  managed or incompatible bridge must use a separate directory. On a new
-  machine, use a fresh bridge home and do not copy bridge state. DSH session
-  history remains owned by the Host.
-- `DSH_HOST_MODE=desktop-auto` is an opt-in Windows discovery mode. It requires
-  an already-running supported DSH Desktop Host and the documented loopback
-  discovery prerequisites; CI mocks these behaviors and does not constitute a
-  real Desktop installation or login check.
-- macOS does not use `desktop-auto`; use a user-managed static DSH Host URL or
-  another supported static Host configuration. A GUI-launched application may
-  expose a different `PATH` from an interactive shell, so verify CLI discovery
-  explicitly rather than changing shell profiles automatically.
+Use a fresh clone on another machine. Same-machine worktrees depend on the source clone's metadata. Keep the tools checkout and Node path stable, and use a fresh local bridge home for a new machine.
 
-## Codex skill installation check
+Official Desktop setup uses `--gateway --desktop-auto --no-preset` on Windows or macOS. Legacy community Desktop automatic discovery remains Windows-only. A static official Gateway uses an explicit `--gateway --host <origin>`.
 
-The shipped Codex skill check is separate from live caller acceptance:
+Preview before writing. Review conflicts, then verify the selected MCP entry and the two Skill files against canonical source. Setup replaces only approved targets and reports backups or partial success. Repository scope is `.agents/skills/codex-dsh-orchestrator/`; user-wide scope can use `$HOME/.agents/skills/codex-dsh-orchestrator`. Update existing legacy global installations in place to avoid duplicate names.
 
-1. Run `npm ci` and `npm run check`.
-2. Run `npm run setup -- --yes`, or use `--skill-path` with a disposable target
-   and disposable Codex configuration.
-3. Confirm that exactly `SKILL.md` and `agents/openai.yaml` were installed in
-   the reported target and that no unrelated files changed.
-4. Run setup again and confirm the expected idempotent result. Create a
-   deliberate non-secret conflict in a disposable target and confirm that the
-   installer refuses it until `--replace-skill` is supplied.
-5. Restart Codex and confirm that the skill is listed and invocable. This is an
-   operator check and must not be inferred from setup output alone.
+The startup handoff launches applications. Schedule downtime, finish active work, quit Desktop/Codex normally and follow the [operator startup instructions](official-desktop-gateway.md#operator-startup). Preserve the old install and backups for rollback.
 
-## Cross-task session reuse acceptance
+### Verify runtime loading
 
-The mock reuse checks must prove the safety contract without touching a live
-Host:
+1. Record candidate SHA/tree, package version and actual Node executable.
+2. Verify MCP points at that candidate's built entry and that one `dsh_agentlink` is loaded.
+3. Confirm the Skill selector/explicit invocation loads the canonical content.
+4. Confirm unrelated MCP/Skill configuration and the source tree remain intact.
 
-1. Exact metadata-only filtering returns one idle candidate without reading
-   conversation history.
-2. Attachment reuses the existing bridge mapping and reacquires the requested
-   cooperative workspace claim without creating a duplicate mapping.
-3. Attachment sends no prompt and performs no model selection.
-4. A follow-up stays on the same root session and does not create a new root.
-5. Ambiguous, running, stale, incomplete, and mapping-conflict candidates fail
-   closed.
+After replacement, a reconnect timestamp alone cannot prove new code loaded: an older process can reconnect after sleep. Verify the effective entry point, fixed build files, startup context and new caller process together. A retained pre-installation connection does not qualify the replacement build.
 
-Any live reuse check must use a disposable workspace, a non-sensitive prompt,
-and operator approval. Keep task/session identifiers, prompts, credentials,
-local paths, and provider data private. Record only aggregate, directly
-observed outcomes.
+Repeat this after moving a checkout, changing Node or replacing an installation.
 
-## Live Host preflight
+### Connection-only acceptance
 
-Start the DSH Web Host under its normal user or service ownership, then run:
+`npm run doctor` is a configuration/lock preflight. In Gateway mode it intentionally leaves admission `not_probed`.
 
-```bash
-npm run doctor
-```
+After separate connection approval, call `dsh_host_status` once. It can exchange startup authorization and open one API Peer, but creates no session or prompt. Record successful connection/resolution epochs, availability and capabilities without exposing endpoint or authorization details.
 
-Keep any environment-specific versions, routes, capabilities, and identifiers
-in private operator notes. The public repository should describe what must be
-checked, not publish values from one machine or one account.
+On failure, use sanitized stage/reason diagnostics. Leave processes and lock directories intact; report the failure before changing the installation or restarting applications.
 
-The preflight is read-only. It must not create or attach a session, send a
-prompt, select a model, claim a workspace, modify a plugin or profile, or
-change credentials, authentication, or network settings.
+## Windows and macOS non-visual acceptance
 
-## Browser-visible acceptance
+Use the same approved source SHA and dependency tree on both platforms. Obtain approval for model use, keep the DSH route inherited, and use a disposable workspace containing a small non-sensitive package manifest.
 
-Only after separate operator approval for live state changes:
+1. Record file hashes and current source/configuration identity.
+2. Delegate one read-only task asking for the manifest's project name, version and short purpose.
+3. Observe with `dsh_status`, bounded `dsh_wait` and `dsh_tail.nextCursor` until a real terminal outcome. A quiet 30-second window is only an observation window.
+4. Check the returned answer and unchanged workspace hashes. Confirm no automatic approval, unexpected model selection or visual fallback.
+5. After a clean first turn, send one `dsh_followup` asking for a one-line summary. Confirm the same root continues.
+6. Release the claim after the follow-up. A cooperative read-only claim does not enforce the DSH filesystem sandbox.
+7. Separately record whether the intended session is visible in Desktop. API success alone cannot establish UI visibility.
 
-1. Open the DSH Web Host used by the bridge.
-2. Delegate a harmless task in a disposable workspace and confirm the response
-   distinguishes bridge-local workspace claims from a DSH filesystem sandbox.
-3. Confirm that the root session appears in DSH Web.
-4. Confirm that `dsh_wait` and cursor-based `dsh_tail` observe progress without
-   dropping or duplicating the terminal event.
-5. Confirm that `dsh_status` reaches `turn_completed` and returns the final
-   message.
-6. Send one follow-up to the same task and confirm that it remains on the same
-   root session. Treat explicit model selection as a separate state-changing
-   operation because it may persist a DSH default.
-7. If a harmless test produces a typed question, answer it through
-   `dsh_answer_question` and confirm that an ordinary follow-up does not
-   resolve it.
-8. Do not manufacture a sandbox escape to test approval forwarding. When a
-   legitimate approval occurs, verify that it is never auto-allowed and that
-   rejection remains available.
-9. Release the workspace claim and confirm that the DSH session remains
-   visible.
+Report failures before attempting another root session. Record sanitized outcomes; keep credentials, prompts, personal paths, endpoint details and real identifiers in private operator notes.
 
-For existing-session attachment, use an idle disposable session and a fresh
-bridge home. Verify metadata-only discovery, exact precondition checking, no
-prompt/model selection during attachment, and fail-closed behavior for stale
-or running candidates. Issue a follow-up only when that separate write has
-been approved.
+## Optional interaction and reuse acceptance
 
-Repeat live acceptance after a DSH version change, Web API change, model-route
-change, agent-preset change, event-reconciliation change, or mutation-semantics
-change. A single live success proves only the specific environment and route
-that were tested.
+Questions, approvals, cancellation and existing-session attachment are separate tests. Use ordinary harmless interactions; do not create a sandbox escape to provoke an approval. Answer typed questions through `dsh_answer_question`, and confirm each approval requires the user's explicit decision.
 
-## Evidence boundary
+For reuse, metadata-only discovery must find one unique mapped idle root at the exact canonical workspace. Attach with fresh `sessionId`, `updatedAt`, `cwd` and title preconditions; attachment sends no prompt or model-selection write. A later approved follow-up continues that root. Stale, running, incomplete or ambiguous candidates are refused.
 
-Automated checks establish reproducible source and package properties. Mock
-tests establish the visual-routing and fail-closed contracts. Neither proves live
-provider availability, a particular DSH Desktop profile, a Codex restart, or a
-real visual completion. Those claims require a separately approved disposable
-acceptance run and must be recorded outside the public repository unless the
-facts have first been sanitized for public release.
+## Public package and release evidence
+
+Inspect the exact tracked tree, new reachable history and package inventory. Keep credentials, personal paths, real identifiers and internal maintenance plans out of public artifacts. Preserve MIT/NOTICE attribution and `private: true`.
+
+A source archive and an npm package have different inventories: `dist/` is ignored in Git and generated locally, while the package preview includes it. Exclude local `node_modules`, generated Skill copies, bridge state, logs and archives from the source release. See [Release checklist](release-checklist.md).
+
+Revalidate the final candidate after dependency/runtime, Host, caller, routing or reconciliation changes. Keep automated results, connection acceptance and real task completion as distinct evidence.

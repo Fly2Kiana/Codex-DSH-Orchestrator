@@ -1546,7 +1546,7 @@ export class BridgeService {
     if (!snapshot.known || snapshot.stale) {
       throw new BridgeCapabilityError(
         "queue_snapshot_unavailable",
-        "cannot clear the queue without a current events.mux session/queue baseline",
+        "cannot clear the queue without a current verified pending-inbox snapshot",
         { taskId, rootSessionId: task.sessionId, snapshot },
       );
     }
@@ -1582,7 +1582,7 @@ export class BridgeService {
       alreadyClaimed,
       failed,
       preflight: { cursor: view.ledger.cursor, connectionRevision: view.connection.revision },
-      note: "Each rc.6 session.updateQueue(remove) is independent; an item can be claimed between snapshot and removal.",
+      note: "Each queue removal is independent; an item can be claimed between snapshot and removal.",
     };
   }
 

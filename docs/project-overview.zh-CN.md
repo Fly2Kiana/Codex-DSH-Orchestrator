@@ -8,7 +8,7 @@ Codex-DSH-Orchestrator 是一个以 Codex 为主要入口的编排层和调用�
 
 本项目负责 Codex 一侧的编排体验、调用方 handoff 指引、任务监督、会话继续决策，以及本派生项目中持续维护的共享 bridge/runtime。最终决策、审批边界和独立验收仍由主调用方保留。
 
-本仓库不会启动、停止、守护或拥有 DSH Web Host；它不是身份认证边界，不会自动批准 DSH 请求，也不是 DSH Cordis bundle。
+Runtime 连接用户管理的 Host。官方 Gateway 授权来自私有启动交接，provider 登录和应用生命周期由用户负责，DSH 审批需人工决定。本项目不是 DSH Cordis bundle。
 
 ## 组件关系
 
@@ -37,7 +37,7 @@ Codex-DSH-Orchestrator 独立于 DeepSeek、OpenAI 和上游维护者。DSH 仍�
 ## 调用方支持
 
 - Codex 是主要支持的调用方，使用 skill/codex-dsh-orchestrator/ 和共享 bridge。
-- Claude Code 通过保留的调用方集成包获得支持。
+- Claude Code 保留 legacy 项目集成包，官方 Gateway 路径尚无近期 Claude Code 真实验收。
 - ZCode、OpenCode、Workbuddy 和其他调用方会在其宿主行为与安全边界得到验证后再适配。
 
 ## 安全边界

@@ -12,6 +12,7 @@ import { BridgeCapabilityError, BridgeService } from "../src/bridge-service.js";
 import { DshClient } from "../src/dsh-client.js";
 import type { DshMuxFrame, DshServerRequest } from "../src/dsh-types.js";
 import { EventLedger } from "../src/event-ledger.js";
+import { GatewayConnectionError } from "../src/gateway-connection.js";
 import { TaskStore } from "../src/task-store.js";
 import { FakeDshApi } from "./support/fakes.js";
 import { startMockDshHost, type MockDshHost } from "./support/mock-dsh-host.js";
@@ -53,6 +54,41 @@ function deferred() {
   });
   return { promise, resolve };
 }
+
+test("connection snapshots expose safe Gateway diagnostics and clear them after a new outcome", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codex-dsh-manager-diagnostic-"));
+  const api = new FakeDshApi();
+  const originalDescribe = api.hostDescribe.bind(api);
+  let failure: Error | undefined = new GatewayConnectionError("auth_rejected", "Authorization rejected", undefined,
+    { stage: "origin-binding", reason: "authorized_origin_not_found" });
+  api.hostDescribe = async () => {
+    if (failure) throw failure;
+    return originalDescribe();
+  };
+  const manager = new DshConnectionManager({ hostUrl: "http://127.0.0.1:3080", hostProtocol: "gateway",
+    homeDir: home, requestTimeoutMs: 1_000, allowRemoteHost: false }, api, new TaskStore(home), new EventLedger(home));
+  try {
+    manager.start();
+    await eventually(() => manager.snapshot().availability === "auth_rejected");
+    assert.deepEqual(manager.snapshot().diagnostic, { stage: "origin-binding", reason: "authorized_origin_not_found" });
+    const copy = manager.snapshot();
+    copy.diagnostic!.reason = "auth_required";
+    assert.equal(manager.snapshot().diagnostic?.reason, "authorized_origin_not_found");
+    await manager.stop();
+
+    failure = new GatewayConnectionError("auth_required", "Authorization required");
+    manager.start();
+    await eventually(() => manager.snapshot().availability === "auth_required");
+    assert.equal(manager.snapshot().diagnostic, undefined);
+    await manager.stop();
+
+    failure = undefined;
+    manager.start();
+    await eventually(() => manager.snapshot().availability === "connected");
+    assert.equal(manager.snapshot().diagnostic, undefined);
+    assert.equal(manager.snapshot().lastError, undefined);
+  } finally { await manager.stop(); await removeTestHome(home); }
+});
 
 function managerInternals(manager: DshConnectionManager) {
   return manager as unknown as {
@@ -865,6 +901,9 @@ test("high-frequency assistant content-stream progress is dropped from the persi
     const turnStartSeq = 5 + HISTORY_CHUNKS;
     const userEventSeq = turnStartSeq + 1;
     const liveSeqBase = userEventSeq + 1;
+    // Ledger completion can precede the separately scheduled initial history
+    // readiness notification. Exclude that revision from the live-frame count.
+    await eventually(() => manager.snapshot().capabilities.historyReconciliation);
     const beforeTurn2 = await ledger.snapshot(task.taskId);
     const revisionBeforeTurn2 = manager.snapshot().revision;
     host.sendMux({ type: "session/event", sessionId: "root-session", event: { type: "turn/start", seq: turnStartSeq, time: 60, data: { turn: 2 } } });

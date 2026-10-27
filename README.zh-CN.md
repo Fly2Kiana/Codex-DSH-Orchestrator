@@ -1,311 +1,170 @@
 # Codex-DSH-Orchestrator
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE) [![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-339933?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org/) [![DSH bridge](https://img.shields.io/badge/DSH-bridge-4B6BFB?style=flat-square)](https://www.deepseek.com/harness/en/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE) [![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-339933?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 
 [English](README.md) | **简体中文**
 
-Codex-DSH-Orchestrator 是一个以 Codex 为主要入口的编排层和调用方 MCP bridge，用于让 Codex 与 DeepSeek Harness（DSH）进行有边界的协作。它可以让 Codex 将实现、调研、调试和长日志分析等工作交给 DSH，同时在原有工作流中观察、继续或取消这些会话。Claude Code 也通过共享调用方集成层得到支持；ZCode、OpenCode 和 Workbuddy 仍处于延期或待验证状态，只有在其宿主行为得到确认后才会继续适配。
-
-本仓库中的共享 bridge runtime 是基于上游 [dsh-Agentlink 项目](https://github.com/hootandy321/dsh-Agentlink) 独立维护的派生组件。本项目保留上游 MIT 许可证和版权归属，不隶属于 DeepSeek、OpenAI 或上游维护者，也不代表其官方背书。
+Codex-DSH-Orchestrator 让 Codex 把有明确范围的任务交给 DeepSeek Harness（DSH），观察进度、继续同一会话并审阅结果。Codex 负责规划与最终验收，DSH 承担实现、代码搜索、重构和测试。
 
 ## 项目边界
 
-Codex-DSH-Orchestrator 是调用方一侧的编排与 MCP bridge 项目。它连接已支持的调用方与独立运行的 DSH Web Host；不会启动、拥有或为该 Host 提供身份认证，也不会自动批准 DSH 请求。它不是 DSH Cordis bundle。
+connect-only MCP 注册名为 `dsh_agentlink`，连接由用户管理的 DSH Host。Desktop 启动、登录、权限和模型凭据由用户负责，审批需要人工确认。它不是 DSH Cordis bundle，请勿使用 `dsh plugin --profile ... add ...` 安装。
+
+本项目独立维护，派生自 [dsh-Agentlink](https://github.com/hootandy321/dsh-Agentlink)，保留上游 MIT 许可及 [NOTICE](NOTICE) 署名。DeepSeek、OpenAI 和上游维护者不参与本项目维护。
 
 ## 快速上手
 
-**前置条件**
+准备 Node.js 22+、npm、Git、Codex 和对应平台的官方 DeepSeek Harness Desktop。仓库放在固定工具目录，因为 setup 会记录绝对路径。
 
-- Node.js 22+（已测试基线为 x64 Node 22 或 24；其他主版本与 ARM64 不在覆盖范围）
-- 一个受支持的调用方：Codex，或 Claude Code 2.1.199+
-- 一条由用户自行管理的 DSH Host 路径：官方 DSH CLI/Web Host，或 Windows 上使用显式 `--desktop-auto` 模式时已经运行的 DSH Desktop Host
+| Host 路径 | setup 选项 |
+| --- | --- |
+| Windows 或 macOS 官方 Desktop | `--gateway --desktop-auto --no-preset` |
+| 已知 origin 的官方 Gateway | `--gateway --host <origin> --no-preset` |
+| 旧 rc.6 Web Host 或 Windows 社区 Desktop | 参见[旧版配置](docs/manual-configuration.zh-CN.md#旧版-host) |
+
+当前为支持官方 Desktop 的 `0.1.0-alpha.6` 发布候选，尚未发布。Windows 和 Apple Silicon Mac 均已完成继承当前模型的只读任务及同会话 follow-up。运行时代码通过了 Ubuntu、Windows、macOS 与 Node 22/24/26 的全部九项 CI。[验证记录](docs/validation.md)列出实测版本、环境和仍待验证的能力。
 
 ### 推荐：复制给 Agent 的安装 Prompt
 
-下面的 Prompt 让 AI agent 执行本地安装，同时把 Host、凭据、信任和替换决定留给人类。它是请求模板，不会产生额外的文件系统授权。
-
 ```text
-请从 https://github.com/Fly2Kiana/Codex-DSH-Orchestrator 安装 Codex-DSH-Orchestrator。
-只在我批准的仓库目录内工作。先阅读 README 和相关的 setup/validation 说明；不要读取凭据、
-调用方私有配置、.env 文件、原始 session、日志或 DSH bridge 状态。检查 Node.js 22+，并报告
-DSH CLI 或已经运行的 DSH Desktop Host 是否可用。不要替我启动、关闭、登录或重新配置 DSH。
+从 https://github.com/Fly2Kiana/Codex-DSH-Orchestrator 安装到我批准的固定工具目录。
+核对 Node.js 22+、npm、Git 和选定的源码版本，执行 npm ci、npm run check。
+官方 Desktop 先预览：
+npm run setup -- --yes --gateway --desktop-auto --no-preset --dry-run
 
-clone 仓库，运行 npm ci，再运行 npm run check。Codex 从仓库根目录运行 npm run setup -- --yes；
-默认会安装 MCP 入口，并把仓库提供的 Codex skill 安装到
-.agents/skills/codex-dsh-orchestrator。如果已有 MCP 或 skill 文件发生冲突，先停止并展示不含
-秘密的冲突摘要，得到许可后才能使用 --replace 或 --replace-skill。只有我明确选择自行管理
-skill 时才使用 --no-skill。Claude Code 运行 npm run setup:claude -- --yes --project /项目的绝对路径，
-同样先审查 --replace/--replace-skill 冲突。
+报告 MCP、Skill 目标及冲突。跨项目使用时选择一个用户级 Skill 位置；
+只在仓库使用时保留 .agents/skills/codex-dsh-orchestrator。
+已装在旧全局位置的 Skill 原地更新。使用 --replace 或 --replace-skill 前先问我。
+只安装审阅后的目标，保留备份；部分成功时报告实际状态。
 
-分别报告：依赖/构建检查、MCP 注册、Codex skill 目标路径和具体文件、仍需人工执行的调用方重启/信任，
-以及 DSH Host 可达性。不要仅凭 setup 返回成功就声称端到端完成。不要启动或关闭 DSH、自动批准请求、
-发布 npm 包或写入 GitHub，除非我另行批准。
+准备阶段保持我的应用和任务运行。授权交接前，说明哪些应用将启动或重启，等我批准空窗。
+启动授权只经私有进程管道传递，不打印、不保存，也不要向我索要 provider API key。
+
+我重启后，核对 MCP 和 Skill 加载，再做仅连接验收。
+模型调用另行审批。分别报告安装、连接和真实任务结果。
 ```
-
-### 使用 PowerShell 快速安装
-
-要在 Windows 上安装 Codex 集成，请打开 PowerShell，粘贴下面的脚本并按回车。除非修改 `$installDir`，脚本会使用 `%USERPROFILE%\Tools\Codex-DSH-Orchestrator`。
-
-脚本会依次：
-
-- 克隆仓库，或 fast-forward 更新一个干净的现有 checkout；
-- 使用 `npm ci` 安装依赖并构建 bridge；
-- 运行 `npm run setup -- --yes`，写入 Codex MCP 入口和仓库 skill；
-- 最后运行只读的 `npm run doctor` 检查。
-
-脚本的安装步骤在你的电脑上执行；只有仓库和 npm 依赖需要联网下载。它不会启动、关闭、登录或重新配置 DSH，也不会创建凭据。如果 setup 发现将要覆盖已有的 MCP 或 skill 文件，会停止而不是静默替换；请先查看报告的文件，确认替换安全后，再使用 `--replace` 或 `--replace-skill` 重新运行 setup。
-
-```powershell
-$ErrorActionPreference = 'Stop'
-$repoUrl = 'https://github.com/Fly2Kiana/Codex-DSH-Orchestrator.git'
-$installDir = Join-Path $env:USERPROFILE 'Tools\Codex-DSH-Orchestrator'
-
-if (Test-Path -LiteralPath $installDir) {
-  if (-not (Test-Path -LiteralPath (Join-Path $installDir '.git'))) {
-    throw "The install directory exists but is not a Git checkout: $installDir"
-  }
-  Set-Location -LiteralPath $installDir
-  if (@(git status --porcelain).Count -ne 0) {
-    throw 'The existing checkout has local changes; review them before updating.'
-  }
-  git pull --ff-only
-  if ($LASTEXITCODE -ne 0) { throw 'git pull --ff-only failed.' }
-} else {
-  New-Item -ItemType Directory -Force (Split-Path -Parent $installDir) | Out-Null
-  git clone --single-branch $repoUrl $installDir
-  if ($LASTEXITCODE -ne 0) { throw 'git clone failed.' }
-  Set-Location -LiteralPath $installDir
-}
-
-npm ci
-if ($LASTEXITCODE -ne 0) { throw 'npm ci failed.' }
-npm run build
-if ($LASTEXITCODE -ne 0) { throw 'npm run build failed.' }
-npm run setup -- --yes
-if ($LASTEXITCODE -ne 0) { throw 'npm run setup failed.' }
-npm run doctor
-$doctorExitCode = $LASTEXITCODE
-if ($doctorExitCode -ne 0) {
-  Write-Warning 'doctor did not complete successfully; confirm that the DSH Host is running, then review the doctor output.'
-}
-```
-
-这个安装流程配置的是 Codex。Claude Code 请使用下方手动配置部分中的独立 `setup:claude` 流程。请把 checkout 保存在稳定目录，因为 setup 会把绝对路径写入调用方配置。
-
-脚本运行结束后：
-
-1. 如果 DSH Host 尚未运行，请先由你自行启动或打开它。
-2. 重启 Codex，通过 `/mcp` 或设置确认 `dsh_agentlink`。
-3. 使用 `/skills` 和 `$codex-dsh-orchestrator` 确认 skill 已被发现。
-4. 如果 `doctor` 因 Host 未运行而给出警告，启动 Host 后再次运行 `npm run doctor`。
-
-脚本成功退出只表示本地安装步骤完成，不代表 DSH 已登录或信任、调用方权限和 provider 已确认，也不代表真实委派已经成功。
 
 ### 手动配置与验收
 
-1. 由你自行启动或打开 DSH Host。bridge 不会启动、关闭或登录 DSH Desktop/Web Host。
+每台电脑使用独立 clone：
 
-2. 克隆仓库并安装可复现的依赖：
+```sh
+git clone https://github.com/Fly2Kiana/Codex-DSH-Orchestrator.git
+cd Codex-DSH-Orchestrator
+npm ci
+npm run check
+```
 
-   ```bash
-   git clone https://github.com/Fly2Kiana/Codex-DSH-Orchestrator.git
-   cd Codex-DSH-Orchestrator
-   npm ci
-   ```
+Windows 和 macOS 官方 Desktop 使用同一组参数，先预览：
 
-3. 配置调用方。
+```sh
+npm run setup -- --yes --gateway --desktop-auto --no-preset --dry-run
+```
 
-   Codex 从仓库根目录运行：
+默认 Skill 位置是当前 checkout 的 `.agents/skills/codex-dsh-orchestrator/`。如需在任何项目中调用，在预览和安装命令中都加上 `--skill-path "$HOME/.agents/skills/codex-dsh-orchestrator"`。已有的 `~/.codex/skills` 安装可以继续使用原位置，显式指定该位置更新，避免出现同名双份 Skill。目录规则参见 [Codex Skill 官方文档](https://learn.chatgpt.com/docs/build-skills)。
 
-   ```bash
-   npm run setup
-   npm run doctor
-   ```
+确认目标后，去掉 `--dry-run` 正式安装：
 
-   `npm run setup` 会构建 bridge，使用 `approval_mode = "prompt"` 写入 Codex MCP 入口，并把仓库提供的两个 skill 文件安装到 `.agents/skills/codex-dsh-orchestrator/`：`SKILL.md` 和 `agents/openai.yaml`。替换已有文件时会创建备份；不同内容的 skill 不会被静默覆盖，必须显式使用 `--replace-skill`。如果要跳过 skill 安装，使用 `--no-skill`；如果要指定目录，使用 `--skill-path <目录>`。重启 Codex 后，通过 `/mcp` 或设置确认 `dsh_agentlink`，再用 `/skills` 和 `$codex-dsh-orchestrator` 确认 skill 已被发现。setup 成功不代表 DSH 登录、权限、信任或端到端委派已经完成。
+```sh
+npm run setup -- --yes --gateway --desktop-auto --no-preset
+```
 
-   Windows 上使用会变化的 DSH Desktop loopback 端口时，请显式选择自动发现：
+setup 注册 bridge，为审批保留 `approval_mode = "prompt"`，并复制 `SKILL.md` 和 `agents/openai.yaml`。MCP 与 Skill 内容冲突分别需要 `--replace`、`--replace-skill`；先检查冲突再替换。`--no-skill` 跳过 Skill 安装。替换成功时会产生备份；若只完成其中一部分，先核对状态再重试。
 
-   ```bash
-   npm run setup -- --desktop-auto
-   ```
+官方 Gateway 通过私有内存管道把 Desktop 启动授权交给新启动的 Codex。**这一步会启动 Desktop 和 Codex，执行前需要先正常退出两个应用。请先结束当前工作，再按 [Win/Mac 启动步骤](docs/official-desktop-gateway.md#operator-startup)操作。**使用期间保持该终端运行。
 
-   静态模式要求 `dsh --version` 可用；`--desktop-auto` 可以在 CLI 不在 `PATH` 时使用已经运行且通过验证的 Desktop Host。它绝不会启动或关闭 DSH Desktop。需要完全手动编辑 TOML 时，参见[Codex MCP 手动配置](docs/manual-configuration.zh-CN.md)。
+受控启动后，通过 `/mcp` 或设置确认 `dsh_agentlink`，用 `/skills` 或 `$codex-dsh-orchestrator` 确认 Skill。随后仅调用 `dsh_host_status` 检查连接，不创建任务、不调用模型。该调用会按需交换授权、建立 Gateway API Peer；doctor 则有意将这一步报告为 `not_probed`。
 
-   Claude Code 2.1.199 或更高版本：
+### 换机与回滚
 
-   ```bash
-   npm run setup:claude -- --project /你的项目绝对路径
-   cd /你的项目绝对路径
-   claude mcp get dsh_agentlink
-   ```
+换电脑请重新 clone。单个 linked worktree 的 `.git` 指向原始 clone，不能直接当作独立安装复制。
 
-   Claude 向导只修改该项目的 `.mcp.json` 和 `.claude/skills/claude-code-dsh/SKILL.md`，并保留其他无关 server。打开该项目中的 Claude Code，通过 `/mcp` 批准 pending server；bridge 会把 `dsh_resolve_approval` 标记为必须人工交互。
+将 `DSH_BRIDGE_HOME` 放在可靠的本地磁盘。遵守同一协作锁协议的兼容进程可以共用；独立管理或不兼容的 build 使用不同 home。新 home 的 mapping、cursor 和 claim 从头开始，DSH 对话历史仍由 Host 保留。
 
-   使用 `--replace` 或 `--replace-skill` 前先审查已有文件。两个安装器都会识别旧版 `dsh_collab`，并且只在明确批准替换后迁移为 `dsh_agentlink`。它们不会改变 DSH permission/sandbox 设置，也不会替你重启调用方。
-
-4. 按四类结果理解验收范围：
-
-   | 检查项 | setup 能够确认 | 仍需人工或外部确认 |
-   |---|---|---|
-   | 依赖/构建 | `npm ci` 与本机构建/测试 | registry 可用性和操作系统选择 |
-   | MCP 注册 | 精确配置块、原子写入和备份 | 调用方重启、信任和实时 `/mcp` 连接 |
-   | Codex skill | `.agents/skills/` 下精确的 `SKILL.md` 和 `agents/openai.yaml` | 重启 Codex 并确认 `/skills` 发现 |
-   | DSH 运行 | 可用时进行只读 Host/CLI 探测 | DSH 启动/登录、权限、provider 和真实委派 |
-
-### 可移植性与安装边界
-
-- 换到另一台机器时请重新 clone。不要直接复制单个 worktree 目录：其中的 `.git` 文件指向原始 clone 的 worktree 元数据。同一台机器上需要 worktree 时，请从源 clone 使用 `git worktree add` 创建。
-- 干净、可复现的 checkout 优先使用 `npm ci`；只有明确要更新 lockfile 时才使用 `npm install`。
-- `npm run setup` 会把 Node.js 可执行文件和构建后的 bridge 入口的绝对路径写入调用方配置。请把 checkout 放在稳定的工具目录；移动目录、更换 Node.js 或切换 worktree 后，应重新构建并运行 setup，先审查已有条目，再在明确授权后使用 `--replace`。
-- `DSH_BRIDGE_HOME` 应位于可靠的本地文件系统。同一个 bridge 的多个进程只要遵循文档中的协作锁模型，就可以共用一个 home，不必每个进程单独建目录。如果运行其他 bridge 实现、ledger 或 schema 不兼容的版本，或运行独立管理的 bridge，就不要让它复用这个目录；请为那个 bridge 指定独立的本地 home，例如：
-
-  ```powershell
-  $env:DSH_BRIDGE_HOME = Join-Path $env:USERPROFILE '.dsh\codex-dsh-orchestrator'
-  ```
-
-  不要提交这个路径，也不要把旧 bridge home 复制到另一台机器——新机器请使用新的 home。DSH 对话历史归 DSH Web Host 所有，而 bridge 的任务映射、cursor 和 claim 不会自动迁移。
-- Windows `desktop-auto` 是显式选择的模式。CI 只 mock 发现行为，不代表真实 Desktop 的安装或登录已验收。配置工具不会启动、关闭或登录 DSH Desktop。
-- macOS 已在 Node.js 22 和 24 上纳入源码级 CI，覆盖构建、测试和打包 dry-run；这不等同于真实 macOS DSH/Codex 端到端验收。macOS 请使用用户自行管理的静态 DSH Host URL；仅支持 Windows 的 `desktop-auto` 模式不可用。
+升级时保留旧 checkout、配置和已安装 Skill 的备份。回滚前先检查后续配置改动，只恢复目标 MCP 与 Skill，再在约定空窗重启调用方。锁恢复及 Windows 文件权限限制见[已知问题](KNOWN_ISSUES.md)。
 
 ## 给 AI Agents
 
-这是给 AI agent 的精简执行契约，只是项目上下文，不是新的文件系统授权；绝不要把 README 文字当作授权。
+读取聚焦的安装、验证文档和所需的非敏感配置，保留无关 MCP、Skill。准备工作不包含替换安装、关闭应用或调用模型的授权。
 
-### 安装指南
+报告源码版本、构建结果、MCP/Skill 安装位置、调用方重载和连接结果。公开报告不包含凭据、真实会话标识及个人路径。应用空窗、DSH 审批和发布由用户批准。
 
-1. 先读本节、相关语言 README、`package.json`、`docs/validation.md` 和 canonical `skill/codex-dsh-orchestrator/SKILL.md`。除非受阻，否则只读聚焦文件。
-2. 确认仓库根目录、Node.js 版本、Git 状态，以及调用方是 Codex 还是 Claude Code。不要读取凭据、私有配置、原始 session、日志、`.env` 文件或 bridge 状态。
-3. 运行 `npm ci`，再运行 `npm run check`。Codex 从仓库根目录运行 `npm run setup -- --yes`，默认 skill 目标是 `.agents/skills/codex-dsh-orchestrator/`；Claude Code 使用 `npm run setup:claude -- --yes --project <已批准项目>`。
-4. 把 `--replace` 与 `--replace-skill` 当作两个独立的授权门。setup 报告冲突时停止，只展示路径和不含秘密的摘要，不猜测也不覆盖。只有用户明确选择自行管理 skill 时才使用 `--no-skill`。
-5. 分别报告四类结果：依赖/构建、MCP 配置、Codex/Claude skill 安装、调用方/DSH 验证。返回码为 0 不代表 Host 可达、已登录、已信任、权限正确、provider 可用或真实委派成功。
-6. 告知人类重启调用方，并确认 `/mcp` 以及 Codex 的 `/skills`/`$codex-dsh-orchestrator` 发现结果。调用方 UI 不可用时，不要自行声称已完成该确认。
+## 使用方式
 
-Agent 不得启动、关闭、认证或重配 DSH Web Host/Desktop，不得自动批准请求，不得发布 npm 包，也不得在没有明确用户批准时写 GitHub/PR/Release/Tag。报告版本、Git 状态、变更路径和验证结果时，不要记录秘密、prompt、task/session ID、本地路径或 provider 数据。
+在已加载 bridge 和 Skill 的项目中说：
 
-## 项目组成
+> 请委派给 DSH 完成这个有明确范围的任务，按当前项目状态交接，并由 Codex 审阅结果。
 
-- `skill/codex-dsh-orchestrator/` — canonical Codex 编排 skill 及其 agent 元数据；setup 会把其中两个文件复制到仓库范围的 `.agents/skills/codex-dsh-orchestrator/` 发现目录。该生成副本已被 Git 忽略；修改时应更新 canonical 源文件。
-- `skill/codex-dsh/` — 共享的 Codex 调用方兼容 skill。
-- `skill/claude-code-dsh/` — 保留的 Claude Code 调用方兼容 skill。
-- `src/` — 共享的、与调用方无关的 MCP bridge runtime 和配置工具。
-- `test/` — 本地 mock Host、安全、兼容性和集成测试。
-- `docs/project-overview.zh-CN.md` — 详细的归属与架构关系说明。
+可用 `$codex-dsh-orchestrator` 显式调用，也可使用自然语言委派。Skill 根据进度、Git 状态、重点文件、测试和限制组织 compact handoff，让 DSH 先读重点文件。Bridge 不会自动取得此前的调用方对话。
 
-dsh-Agentlink 名称因运行时兼容性和法律归属继续出现在标识符与上游说明中，但它不是本项目的公开标题。
+同一已知任务使用 `dsh_followup`。跨 Codex 对话接续时，先由仅元数据 `dsh_find_sessions` 找到精确 canonical 工作区内唯一 mapped、idle root，再以新鲜 title/cwd/update 前置条件执行 `dsh_attach_session`。标题或措辞相似不足以决定复用。保留上下文能减少重复读取，也可能增加输入 token；Host 没有文档化用量遥测时，provider cache 证据保持 `not_exposed`。
 
-## 调用方支持情况
+## 模型路由
 
-| 调用方 | 状态 | 安装方式或可用性 |
-|---|---|---|
-| Codex | ✅ 已支持 | `npm run setup`（MCP + 仓库 skill） |
-| Claude Code | ✅ 已支持 | `npm run setup:claude -- --project /项目的绝对路径` |
-| ZCode | ⏸ 已延期 | 恢复调用方扩展时的首个候选 |
-| OpenCode | ⏳ 待适配 | 尚不可用 |
-| Workbuddy | ⏳ 待适配 | 尚不可用 |
+委派和 follow-up 共用显式启用、保留兼容的模型路由。
 
-目前只有标记为**已支持**的调用方在本仓库中提供可用安装路径。“已延期”和“待适配”是当前方向，不代表发布承诺。
+| 请求 | 行为 |
+| --- | --- |
+| 省略路由或使用 `inherit` | 验证当前会话路由，不写入模型选择 |
+| `flash` / `pro` | 在当前账号/API Key provider 内选择目录实际提供的官方模型 |
+| `reasoningEffort` | 要求目录明确支持该等级 |
+| 低复杂度视觉任务 | `visualIntent="required"`、`complexity="low"`，有可信图片能力证据时才选择官方 Flash Vision |
+| 高复杂度视觉任务 | 由用户在 `official-flash-vision` 与 `modlens-pro` 中选择 |
 
-doctor 会以只读方式报告 `DSH_BRIDGE_HOME` 下的 fail-closed 锁位置，且从不清理它们，因此即使存在锁也能安全运行。
+Flash 兼容 `deepseek-flash` 与旧 `deepseek-v4-flash`；Pro 使用 `deepseek-v4-pro`。Pro 不可用时拒绝继续，账号与 API Key provider 保持分离。选择后 bridge 会重读目录验证。选择保存为全局默认值时，委派和 follow-up 返回 `modelRouting.persistsAsDshDefault=true`；即使验证失败、尚未发出 prompt，这个副作用也可能已经发生。
 
-当前源码补丁会阻止新的 projection/chunk 洪峰继续扩大 coordination ledger，但不会自动压缩已有的 5 MB 以上 ledger。请保留旧 bridge home 备查；需要隔离时，新的委派可以另用一个独立的 `DSH_BRIDGE_HOME`。对话真源始终是 DSH `session.history`，不是 bridge ledger。保守恢复边界见[已知问题](KNOWN_ISSUES.md)。
+官方 rc.3 会话目录省略图片模态信息，因此仅凭 Vision 名称不能启用原生视觉。ModLens Flash 只在获批视觉路由耗尽符合条件的有界重试后尝试一次；无效输入、模型缺失、权限和配置错误不触发备用切换。prompt 写入不自动重试。省略视觉策略字段时，显式旧式 `modlens-flash` 仍保留兼容。
 
-这个 bridge（运行时名称为 `dsh_agentlink`）安装在调用方一侧，不是 DSH Cordis bundle；请不要使用 `dsh plugin --profile ... add ...` 安装。
-
-## 为什么需要 Codex-DSH-Orchestrator？
-
-### 利用 DSH 的 Harness 能力
-
-DSH 为复杂任务提供持久 session、工具调用、subagent 和人工监督等能力。Codex-DSH-Orchestrator 让你的主调用方（当前为 Codex 或 Claude Code）能够与这套独立 harness 讨论并协作，同时不离开原本的工作入口。
-
-### 不只是再增加一个原生 subagent
-
-原生 subagent 仍属于调用方自己的 agent tree。共享 bridge 接入的是一套由用户配置的独立 harness：会话可以在 DSH Web 持续查看，使用 DSH 自己的 worker 与模型路由，并由主调用方观察、继续或取消。
-
-### 省时间、也省成本
-
-- **省时间。** 把实现、检索、资料提取和长日志整理等执行型任务交给你在 DSH 中配置的高速模型，例如 DeepSeek V4 路由，主 agent 可以继续规划和验收。
-- **省成本。** 把大量执行 token 路由到成本更低的 DeepSeek 模型，可以减少对昂贵主模型的消耗。
-
-实际速度和费用取决于模型、服务商、部署方式、网络与任务本身。完成安装后，你仍然可以像平常一样使用 Codex 或 Claude Code，只在适合交给 DSH 执行时直接让它发起委派即可。
-
-## 如何使用
-
-启动 `dsh web`，并让调用方加载、信任 MCP 配置后，直接用自然语言告诉 Codex 或 Claude Code，例如：
-
-> 使用 Codex-DSH-Orchestrator，把当前仓库里的这个实现任务委派给 DSH。保持会话在 DSH Web 可见，向我报告进度，任何 approval 都先询问我。
-
-之后调用方可以委派任务、观察事件、继续同一会话、与你一起回答 DSH 的问题，或取消任务。打开已配置的 DSH Web origin，即可查看并操作同一个 session。在 Windows 上可显式设置 `DSH_HOST_MODE=desktop-auto`，让运行时发现并验证 DSH Desktop 所属的 loopback listener，避免依赖会变化的临时端口；显式 `DSH_HOST_URL` 永远优先。
-
-发起新委派前，调用方会把已知进度与只读工作区证据整理成简短 handoff 写入 prompt：目标、已完成内容、可用时的 Git HEAD/status 与变更路径、优先代码/Markdown 路径、相关测试、约束和未解决问题，并要求 DSH 先读优先路径，只有受阻时才扩大到全仓库扫描。handoff 不包含凭据、原始大段 diff、文件全文、调用方聊天记录或内部推理。这只是调用方工作流指导，不是新的文件系统授权；dsh-Agentlink 不会自动取得调用方先前的对话状态。同一项工作且已知 BridgeTask id 时使用 `dsh_followup`；不知道匹配 id 时新建委派，不猜测旧任务。
-
-用户明确指出某个已有 DSH Desktop 会话时，调用方可以先用 `dsh_find_sessions` 读取有界的 root-session 元数据，再用精确 session id 和新鲜元数据前置条件调用 `dsh_attach_session`。标题只用于发现，绝不作为接管身份。接管只接受空闲 root session，创建或复用 bridge-local mapping 与 workspace claim，并可能为了监督而 reconcile history，但不会返回或持久化对话正文。它也不会创建或重命名 DSH session、发送 prompt 或改变模型路由。需要继续工作时，再由后续 `dsh_followup` 发送 compact handoff。
-
-跨 Codex 任务复用会话是保守的三选一：`same-known-task`、`attached-existing-task` 或 `new-session`。只在同一工作流中复用已知的 BridgeTask；新任务若有明确的延续证据，应通过仅读元数据的 `dsh_find_sessions`，以精确 canonical cwd 加上 mapped、idle 过滤，找到唯一候选，并以新鲜前置条件接管后再继续。绝不按标题或相似度复用，也绝不为发现而读取 history；遇到歧义、运行中、过期、缺少 cwd 或映射冲突的候选一律失败关闭。复用可以节省交接与重复读取仓库的成本，但也可能增加输入 token，因此只有在延续性仍然相关时才是成本优化。复用与减少的重复读取并不证明 provider prompt-cache 命中或 token 折扣；除非 DSH 提供文档化的聚合用量遥测，否则 provider cache 证据不会被暴露。
+自动测试已覆盖路由策略；当前原生视觉、ModLens 及备用 provider 执行仍待真实验证。具体能力限制和旧 Code Mode 交接见 [Gateway 说明](docs/official-desktop-gateway.md#models-and-capabilities)。
 
 ## MCP 工具
 
-- `dsh_host_status` — 读取 connect-only Host 状态与 capabilities
-- `dsh_find_sessions` — 只读取已有 root session 的有界元数据；不读取 history 或返回 raw projections
-- `dsh_attach_session` — 使用精确 id/title/cwd/update 前置条件安全接管一个空闲 root session；不发送 prompt 或改变模型
-- `dsh_delegate` — 创建 root session 并排队初始 prompt；可选 `inherit|flash|pro|official-flash-vision|modlens-flash|modlens-pro` 和 catalog 支持的 `reasoningEffort`，或声明 `visualIntent="required"` 加 `complexity="low"|"high"` 走视觉策略；默认 detached（`waitSeconds=0`）；`workspaceMode` 是 bridge-local claim，不是 DSH sandbox selector
-- `dsh_followup` — 以显式 `mode="queue"|"steer"` 继续同一个 root session；默认 `queue`；可在 prompt 前选择相同的语义模型档位与已校验 reasoning effort
-- `dsh_continue` — `dsh_followup` 的兼容别名
-- `dsh_status` — 返回 availability、execution、lineage、queue、pending interaction、final message、cursors、visual fallback 标记和 workspace claim semantics
-- `dsh_tail` — 使用 bridge task cursor 读取有界事件摘要
-- `dsh_wait` — 最多等待 30 秒，直到出现 durable event、状态变化、pending interaction 或 terminal 状态
-- `dsh_observe` — `dsh_wait` 的兼容别名；bridge cursor 取代原始 per-session seq cursor
-- `dsh_cancel` — `scope="turn"|"queue"`
-- `dsh_list` — 列出 task mapping，并附带当前派生状态
-- `dsh_answer_question` — 通过 pending question rpcId 提交类型化答案
-- `dsh_resolve_approval` — 对 pending approval rpcId 提交 `allow_once|reject`
-- `dsh_release_workspace` — 显式释放持久化 workspace claim，但不关闭 DSH session
+| 工具 | 用途 |
+| --- | --- |
+| `dsh_host_status` | 连接状态和能力 |
+| `dsh_find_sessions` | 有界 root 会话元数据发现 |
+| `dsh_attach_session` | 以新鲜前置条件接管精确空闲 root |
+| `dsh_delegate` | 创建 root 并排入初始 prompt |
+| `dsh_followup` / `dsh_continue` | 在同一 root 排队或 steer |
+| `dsh_status` | 执行、待交互项、最终回复与 claim |
+| `dsh_tail` | 有界事件摘要和后续 cursor |
+| `dsh_wait` / `dsh_observe` | 单次最多 30 秒的有界观察 |
+| `dsh_cancel` | 取消当前 turn 或已观察到的队列项 |
+| `dsh_list` | 映射任务列表 |
+| `dsh_answer_question` | 回答类型化待答问题 |
+| `dsh_resolve_approval` | 经人工批准的 `allow_once` 或拒绝 |
+| `dsh_release_workspace` | 释放协作 claim，保留 DSH 会话 |
 
-模型路由对委派与 follow-up 都是可选且向后兼容的。省略 `modelProfile` 和 `reasoningEffort` 时，操作只读取 `session.models.current`、验证 `routable`，不会调用 `session.selectModel`。语义映射为：`flash`/`pro` -> `deepseek-official/deepseek-v4-{flash,pro}`，`official-flash-vision` -> `deepseek-official/deepseek-v4-flash-vision-exp`，`modlens-flash`/`modlens-pro` -> `deepseek-modlens/deepseek-v4-{flash,pro}`。请求的 provider、model 和推理等级必须存在于实时 `session.models` catalog 中。bridge 会在初始或 follow-up prompt 前完成选择并重新读取验证；任何不一致都会失败关闭，不发送该 prompt。视觉必需（visual-required）请求只会对选择/验证阶段做有界重试，且仅在每次失败都是明确分类的强制因素（timeout、Host 不可达或 HTTP 5xx）时进行；这些重试耗尽后，bridge 只会尝试 ModLens Flash 一次。prompt 写入本身永不重试。
+操作前保留最新 cursor/revision。单次等待结束后继续观察，直到真实终态或需要人工处理。Workspace claim 协调 bridge 用户，不执行 DSH 文件系统权限限制。
 
-用户明确指定永远优先。用户未指定时，主调用方可以保持 `inherit`；常规搜索、实现和测试修复使用 Flash；架构设计或困难的多步骤调试使用 Pro。视觉工作必须显式声明 `visualIntent="required"` 与 `complexity`：低复杂度自动选择官方原生 Flash Vision；高复杂度必须由用户在 `official-flash-vision` 与 `modlens-pro` 之间明确选择，否则在发送任何内容前以 `user_choice_required` 失败关闭。`modlens-flash` 绝不是首选：只有当获批视觉路线在有界重试内全部因明确分类的强制因素失败后，bridge 才会自动尝试 ModLens Flash 一次。无效输入、模型缺失、协议/配置错误、权限或凭据拒绝都不会触发 fallback。fallback 被使用时，结果会携带 `visualRouting.fallback` 与简短非敏感提示，并通过 `dsh_status.visualFallback` 暴露最小协调标记；调用方必须在任务结束时用该提示简要告知用户。dsh-Agentlink 只传输文本 prompt：请把 DSH Host 与 ModLens 工具可访问的本地图片绝对路径写进 prompt；bridge 不上传图片字节。`selectionReason` 可记录调用方为何做出显式或自主选择，但不会发送给 DSH。
+## 调用方支持
 
-在本机验证过的 DSH rc.6 collapsed Code Mode 路径上，ModLens 视觉 handoff 使用外层 `run_code` 传输，并在该程序内通过注入的 `tools` SDK 调用已注册的 `modlens_read_image`；官方原生 Flash Vision 使用其原生视觉路径。调用方应把 ModLens 的外层事件视为预期行为，禁止 shell/browser/OCR/图像库绕过，并等待嵌套结果或明确的嵌套/终止错误。插件文档中的内部 timeout 不是整体委派 deadline。这是限定版本的兼容性指引；后续 Host 如行为不同，应以实测的 live capability 为准。
+Codex 使用上述 canonical Skill 与 setup。Claude Code 保留项目级安装器：
 
-**DSH rc.6 的重要副作用：** `session.selectModel` 也会把本次选择保存成 DSH 的全局默认值，影响后续 session。显式选择时，delegate 与 follow-up 返回结果都会包含 `modelRouting.persistsAsDshDefault=true` 和警告。如果不接受这个持久化副作用，请省略路由字段。如果写入模型选择后验证失败，则不会发送 prompt，但该选择可能已经成为全局默认值。
+```sh
+npm run setup:claude -- --yes --project /absolute/path/to/project
+```
 
-`dsh_wait` 只观察 bridge 的持久化状态。assistant delta/chunk 帧和顶层 `session/projection` snapshot 会被跳过，因此不会 bump task revision，也不会唤醒 waiter；turn 结束后的完整 final message 仍可通过 status/tail 观察。
+该安装器配置 legacy 集成，新官方 Gateway 尚无近期 Claude Code 真实验收。ZCode、OpenCode、Workbuddy 和 Claude Desktop 暂缓，见[延期路线图](docs/deferred-roadmap.zh-CN.md)。
 
-## 后续方向
+## 项目组成
 
-以下内容是计划方向，不代表已经实现或 release 承诺。
-
-1. **更多调用方入口** — 恢复调用方扩展时优先评估 ZCode，再通过共享 Integration Pack 架构考虑 OpenCode、Workbuddy、Claude Desktop MCP 等调用方。
-2. **Agent 调用与信息传输** — 优化 prompt 组织、上下文打包、输出摘要和压缩策略，同时确保问题、审批、错误和最终答案可靠传输。
-3. **支持 DSH 插件能力的 session** — 保留当前面向 preset 型插件的 `agentPreset` 路径，增加只读 preset/能力校验和已解析 preset 的报告；只有真实插件证明需要创建后的类型化初始化时，才引入声明式 session launch profile。
-4. **更多集成** — 待共享 Runtime 与调用方兼容性约定稳定后继续扩展。
-
-## 更多文档
-
-- [项目概览](docs/project-overview.zh-CN.md) — 公开身份、组件归属和 Codex-first 架构
-- [架构与安全模型](docs/architecture.zh-CN.md) — 身份、状态、恢复、审批、取消与工作区协作
-- [多调用方扩展架构](docs/caller-integration-architecture.zh-CN.md) — Codex、Claude Code 与后续调用方共享 Runtime 和 Integration Pack 边界
-- [延期路线图](docs/deferred-roadmap.zh-CN.md) — 明确暂缓的工作、启动条件与保留安全边界
-- [验证指南](docs/validation.md) — 兼容性检查与人工验收流程
-- [已知问题](KNOWN_ISSUES.md) — 当前升级与并发运行限制
-- [贡献指南](CONTRIBUTING.md)与[安全说明](SECURITY.md)
+- `src/`：共享 MCP runtime 与 setup。
+- `skill/codex-dsh-orchestrator/`：canonical Codex Skill，修改此源文件而非安装副本。
+- `skill/codex-dsh/`、`skill/claude-code-dsh/`：兼容 Skill。
+- `test/`：模拟 Host、协议、持久化与安装回归。
+- [项目总览](docs/project-overview.zh-CN.md)、[架构](docs/architecture.zh-CN.md)、[验证](docs/validation.md)、[手动配置](docs/manual-configuration.zh-CN.md)、[发布清单](docs/release-checklist.md)、[贡献](CONTRIBUTING.md)及[安全](SECURITY.md)。
 
 ## 相关项目
 
-| 项目或标准 | 关系 |
-|---|---|
-| **Codex-DSH-Orchestrator** | 本项目——以 Codex 为主要入口的调用方 MCP bridge；运行时名为 `dsh_agentlink` |
-| [Codex](https://openai.com/index/introducing-the-codex-app/) / [Claude Code MCP](https://code.claude.com/docs/en/mcp) | 受支持的调用方 |
-| [DeepSeek Harness](https://www.deepseek.com/harness/en/) / [源代码仓库](https://github.com/deepseek-ai/deepseek-harness) | 本 bridge 连接的、由用户独立管理的 DSH Host 生态 |
-| [DSH Desktop](https://github.com/anywhere-labs/dsh-desktop) | DeepSeek Harness 的独立社区桌面客户端；本 bridge 可通过 Windows 的可选 `--desktop-auto` 模式连接其 DSH Host |
-| [ModLens](https://github.com/liustack/modlens) | 面向纯文本 coding agent 的独立视觉插件与桥接项目；其 `deepseek-modlens` 模型可出现在 DSH catalog 中，供本 bridge 的可选视觉路径使用。按照本 bridge 的默认视觉策略，ModLens Pro 是高复杂度视觉工作的明确备选；ModLens Flash 绝不是默认或首选——只有在获批视觉路由因强制因素（timeout、Host 不可达、HTTP 5xx）耗尽有界重试后，bridge 才恰好尝试它一次，调用方在任务结束时告知用户。用户明确指定的路由仍按兼容性规则优先。本项目不维护 ModLens，也不与其存在隶属关系 |
-| [Model Context Protocol](https://modelcontextprotocol.io/) | bridge 使用的协议基础 |
-| [dsh-Agentlink](https://github.com/hootandy321/dsh-Agentlink) | 上游项目与兼容性来源；保留 MIT 许可证和 NOTICE 归属 |
-
-这些链接用于说明本仓库集成、使用或派生所涉及的项目与标准，不表示联合开发、官方背书、共同维护或共享安全边界。`cc-connect`、`gpt2agent`、`Scryer`、`wshobson/agents`、`agent-harness` 和 ACP 等架构资料仅作为参考，不是依赖、合作伙伴或受支持的调用方。
+| 项目 | 关系 |
+| --- | --- |
+| [DeepSeek Harness](https://www.deepseek.com/harness/en/) / [源码](https://github.com/deepseek-ai/deepseek-harness) | 官方 Desktop 与 Host runtime |
+| [DSH Desktop](https://github.com/anywhere-labs/dsh-desktop) | 社区客户端，保留 Windows legacy 自动发现 |
+| [ModLens](https://github.com/liustack/modlens) | 可选视觉插件。本项目不维护 ModLens，也不与其存在隶属关系 |
+| [Model Context Protocol](https://modelcontextprotocol.io/) | 调用方与 bridge 之间的协议 |
+| [dsh-Agentlink](https://github.com/hootandy321/dsh-Agentlink) | 上游 MIT 源码与兼容沿革 |
 
 ## 许可证
 
-[MIT](LICENSE)
-
-Alpha 说明：DSH 仍处于 developer preview，本项目是独立社区项目，不代表 DeepSeek 或 OpenAI 官方背书。`0.1.0-alpha.1` 中的共享账本并发问题已在 `0.1.0-alpha.2` 中修复。升级或并发运行 bridge 前请阅读[已知问题](KNOWN_ISSUES.md)。
+[MIT](LICENSE)。升级共享 bridge home 前请阅读[已知问题](KNOWN_ISSUES.md)。

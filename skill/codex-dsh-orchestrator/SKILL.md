@@ -5,119 +5,101 @@ description: Orchestrate bounded Codex-to-DSH collaboration through the existing
 
 # Codex DSH Orchestrator
 
-Use the already-loaded `dsh_agentlink` MCP tools. If they are unavailable, report that the bridge is not loaded and stop; do not create another MCP configuration or an alternate transport.
+Use the already-loaded `dsh_agentlink` MCP tools. If unavailable, report the missing bridge and stop. Setup and authorization belong to the operator; orchestration does not install a replacement transport or restart applications. Never auto-approve a DSH request.
 
-## Preserve the role boundary
+The official Desktop Gateway requires startup authorization in the caller's environment. On `auth_required`, `auth_rejected` or `unsupported_protocol`, report the condition. Leave tokens, credential stores, private keys, browser cookies and Desktop memory untouched. `dsh_host_status` may perform Gateway admission; use it with connection approval, not as an authentication-free probe.
 
-- Keep Codex as the Principal Agent and Tech Lead. Codex owns requirement interpretation, planning, architecture, task decomposition, technical decisions, review, and final acceptance.
-- Use DSH as a Worker for bounded code search, routine implementation, refactoring, tests, lint/type/test repair, long-log analysis, and follow-up changes from Codex review.
-- Keep small tasks in Codex when delegation and handoff would cost more than the work.
-- Keep architecture ownership, sensitive decisions, approvals, and final acceptance in Codex. Never present DSH output as accepted before independent verification.
+## Roles and delegation size
 
-## Decide the delegation size
+- Codex is the Principal Agent and Tech Lead: requirements, planning, architecture, task decomposition, technical decisions and final acceptance.
+- DSH is the Worker for bounded code search, implementation, refactoring, tests, lint/type/test repair, long-log analysis and review corrections.
+- Keep small tasks in Codex when handoff would cost more than the work.
 
-1. Identify a bounded worker slice with an objective, workspace, constraints, expected evidence, and completion condition.
-2. Delegate only the slice DSH can execute independently. Keep cross-cutting decisions and integration judgment in Codex.
-3. Prefer one focused task over a broad repository-wide assignment. Split unrelated work into separate delegations.
-4. Reuse the same known BridgeTask for revisions to the same work. Never guess an old task id across Codex tasks.
+Delegate one independently executable slice with a workspace, deliverable, constraints and expected evidence. Keep integration judgment and sensitive decisions in Codex. Split unrelated work into separate tasks.
 
-## Choose cross-task reuse conservatively
+## Session continuity
 
-Report exactly one of three decisions with a short reason.
+Report one reuse decision with a short reason:
 
-| Decision | Conditions | Action |
-| --- | --- | --- |
-| same-known-task | The current Codex task retains the exact BridgeTask id and the request continues the same bounded workstream | Inspect status and freshness, then use dsh_followup |
-| attached-existing-task | A new Codex task has explicit continuation evidence; filtered discovery returns one exact-canonical-cwd, mapped, idle root; title and current workstream agree; fresh preconditions pass | Call dsh_attach_session, then dsh_followup |
-| new-session | A new or unrelated objective, a different cwd/branch or security boundary, ambiguous candidates, mapping conflict, stale metadata, noisy or long context, or no explicit continuation evidence | Use dsh_delegate |
+| Decision | Conditions and action |
+| --- | --- |
+| same-known-task | The exact BridgeTask is known and the request continues its workstream. Inspect freshness, then use dsh_followup. |
+| attached-existing-task | Explicit continuation evidence plus one unique mapped, idle root at the exact canonical cwd. Attach with fresh preconditions, then follow up. |
+| new-session | New work, a changed workspace/branch or security boundary, stale/ambiguous candidates, noisy context, or a need for isolation. Use dsh_delegate. |
 
-Reuse only the same known BridgeTask for the same workstream. For attached-existing-task, call metadata-only dsh_find_sessions with the exact canonical cwd plus mappedOnly and idleOnly, then require exactly one unique unambiguous candidate that is idle, mapped, and cwd-matching. Attach only with the returned exact sessionId, updatedAt, cwd, and title preconditions, and fail closed on ambiguous, running, stale, missing-cwd, or mapping-conflict candidates. Never choose a session by title or similarity, and never read history for discovery. Merely similar or merely ambiguous candidates must not be reused or guessed. Attachment reacquires the cooperative workspace claim, sends no prompt, and performs no model selection; the subsequent dsh_followup targets the same root session.
+For cross-chat continuation, use metadata-only `dsh_find_sessions` with exact canonical cwd, `mappedOnly` and `idleOnly`. Require exactly one unique candidate and fresh `sessionId`, `updatedAt`, `cwd` and title preconditions for `dsh_attach_session`. Never read history for discovery. Merely similar or ambiguous candidates must not be reused. A user-named Desktop session still needs exact metadata checks.
 
-For work expected to span multiple Codex tasks, pass a concise non-sensitive stable title to dsh_delegate. A title helps discovery but is never identity or sufficient authorization. Prefer a fresh new-session when isolation is safer or the retained context is no longer relevant.
+Attachment reacquires the cooperative claim, sends no prompt and performs no model selection. Work resumes with `dsh_followup` on the same root. A concise stable title helps discovery but does not identify a session.
 
-## Report reuse and cost honestly
+Reuse may reduce repository rereads and can increase input tokens when context grows. Provider cache hits are not proven by reuse, latency or follow-up success. Keep `providerCacheEvidence=not_exposed` unless documented aggregate cached-token telemetry is available.
 
-Report the chosen decision and a short reason. When a session is reused, state that the same DSH root session was retained and that repository rereads may be reduced. Reuse and avoided rescans are not proof of provider prompt-cache hits or token discounts; provider cache evidence is unknown and not proven unless DSH exposes documented aggregate cached-token usage. Set providerCacheEvidence=not_exposed unless that telemetry exists. Never infer cache hits from lower latency, session identity, or a successful follow-up. A retained long or noisy context may increase input tokens, so reuse is a cost optimization only while continuity stays relevant.
+## Model routing
 
-## Select the model route
+The user's explicit route choice always wins, within catalog and visual-policy constraints.
 
-The user's explicit route choice always wins.
+| Route | Use |
+| --- | --- |
+| `modelProfile="flash"` | Routine search, implementation, refactoring, test writing and repair |
+| `modelProfile="pro"` | Difficult debugging, high-risk changes or deeper analysis |
+| Omit routing / `inherit` | Current route is suitable, or a global-default change is unacceptable |
+| Visual work | Declare `visualIntent="required"` and `complexity="low"|"high"` |
 
-- Use `modelProfile="flash"` for routine search, implementation, refactoring, test writing, and lint/type/test repair.
-- Use `modelProfile="pro"` for architecture analysis, difficult multi-step debugging, high-risk changes, or work requiring substantially deeper reasoning.
-- For visual work, do not pick a ModLens profile directly: declare `visualIntent="required"` with `complexity="low"|"high"` and follow "Declare visual work explicitly" below. `modelProfile="modlens-pro"` is only an explicit user choice for high-complexity visual work, and `modelProfile="modlens-flash"` is never a first choice — it is only the automatic terminal fallback described below.
-- Omit routing or use `inherit` when the current DSH route is suitable or changing the global default is unacceptable.
+Include a concise `selectionReason` for an autonomous non-inherit choice. Pass `reasoningEffort` when requested; otherwise use the advertised default. The current catalog must support the exact model and effort.
 
-When choosing a non-inherit profile autonomously, include a concise `selectionReason`. Pass `reasoningEffort` when the user explicitly requests it; otherwise prefer the selected model's advertised default. Never invent an effort value: the live DSH catalog must advertise it.
+For non-visual work without an explicit profile, `complexity="low"` selects Flash and `complexity="high"` selects Pro.
 
-ModLens receives text prompts through Agentlink. Include DSH-accessible absolute local image paths in the prompt; do not claim that the bridge uploads image bytes. If the image is not accessible to DSH, stop and explain what path or attachment is needed. When the live Host matches the verified collapsed Code Mode behavior, follow the visual protocol below; otherwise follow the Host's verified live capability.
+Current Flash can be `deepseek-account/deepseek-flash` or an API-key route; older catalogs use V4 IDs. An unavailable Pro is an error. Keep account/API-key providers separate and recheck the result after selection. A catalog refresh can remove a route or effort.
 
-Explicit model selection calls `session.selectModel`, which on the currently supported DSH rc.6 persists the selection as DSH's global default for later sessions. Inspect and disclose the returned routing warning. A failed verification sends no prompt, but a selection write may already have changed that default.
+Explicit `session.selectModel` persists the selection as DSH's global default on the supported contracts. Disclose the returned routing warning. Verification failure sends no prompt, but the selection write may already have changed that default. Normally omit `agentPreset` and retain the installation-time default.
 
-Normally omit `agentPreset` and retain the installation-time default. Do not change DSH profiles, authentication, permissions, or plugin configuration as part of orchestration.
+## Visual policy
 
-## Declare visual work explicitly
+- Low complexity selects the verified official native Flash Vision route. Current Flash needs explicit image-input evidence; the historical exception is the exact `deepseek-official/deepseek-v4-flash-vision-exp` pair. A text-only declaration overrides it.
+- High complexity requires the user's choice of `modelProfile="official-flash-vision"` or `modelProfile="modlens-pro"`. Without it, `user_choice_required` stops before creating a session or prompting. Ask for the choice; retain no new persistent preference.
+- `modelProfile="modlens-flash"` is never a first visual choice under declared visual policy. Only after the approved route exhausts bounded timeout/unreachable/HTTP 5xx selection attempts does the bridge try it once. Cancellation, invalid input, missing models/efforts, provider ambiguity, permissions, credentials and configuration errors do not trigger fallback. Prompt writes are not retried.
+- If visual-policy fields are omitted, an explicitly supplied legacy ModLens profile remains compatible.
+- If `visualRouting.fallback.used=true`, show its short non-sensitive `notice` at task end. Report a failed fallback as a failure.
 
-For visual work, declare the policy through `visualIntent` and `complexity` instead of choosing a ModLens profile directly. A declared policy is deterministic and catalog-validated. When both visual policy fields are omitted, the bridge preserves explicit legacy `modelProfile` compatibility, including an explicitly supplied `modlens-flash`; that compatibility route is not the default visual policy.
+The rc.3 Gateway session catalog omits modalities. A Vision name, provider default or source callback alone cannot establish active image support. Missing evidence and `CLIENT_UPGRADE_REQUIRED`/`MODEL_UNSUPPORTED` are stopping conditions, not fallback triggers.
 
-- `visualIntent="required"` with `complexity="low"` routes to the official native Flash Vision (`deepseek-official/deepseek-v4-flash-vision-exp`); no user choice is needed for the low-complexity default.
-- `visualIntent="required"` with `complexity="high"` requires an explicit user choice between `modelProfile="official-flash-vision"` and `modelProfile="modlens-pro"`. The bridge fails closed with `user_choice_required` before any session, selection, or prompt; ask the user, then retry with the chosen profile. Do not add or assume a persistent default.
-- `modelProfile="modlens-flash"` is never a first visual choice under the declared visual policy. It is the automatic terminal fallback: after the approved visual route exhausts its bounded retries with explicitly classified force-majeure failures only (timeout, unreachable Host, or HTTP 5xx), the bridge tries ModLens Flash exactly once. User cancellation, invalid input, missing models, permission or credential refusals, and configuration errors never trigger the fallback. An explicitly supplied legacy `modelProfile="modlens-flash"` remains accepted only when the visual policy fields are omitted.
-- When a delegate or followup result reports `visualRouting.fallback.used=true`, briefly tell the user at task end, using the short non-sensitive `notice` from the result. Never hide a failed fallback: if the fallback also fails, report the failure and stop.
-- Non-visual work keeps the existing policy: with a declared `complexity` and no explicit profile, low selects official Flash and high selects official Pro. An explicit user `modelProfile` always wins and remains catalog-validated, subject to policy safety.
+The bridge sends text prompts and DSH-accessible absolute local image paths. If DSH cannot access the image, report the missing input. Images are not uploaded by the bridge.
 
-## Handle visual work through DSH Code Mode
+### ModLens Code Mode
 
-The ModLens block and transport rules below apply only when the active visual route is a ModLens model — an explicit user choice of `modelProfile="modlens-pro"` for high-complexity visual work, an explicitly supplied legacy ModLens profile when visual policy fields are omitted, or the automatic terminal fallback described above. When the route is the official native Flash Vision, the model reads images natively; follow the same supervision rules without forcing the ModLens block.
+Use this procedure only for an active ModLens route on the previously verified rc.6 collapsed Code Mode contract. Official native vision uses its own image path. Other Hosts follow their verified tool capability.
 
-On the locally verified DSH rc.6 collapsed Code Mode path, `run_code` is the direct model tool and registered tools such as `modlens_read_image` remain available inside the program through the injected `tools` SDK. A top-level `run_code` call is expected on that path and does not show that ModLens is missing or misrouted. If another Host exposes native tools differently, follow its verified live capability instead of imposing the rc.6 transport.
-
-For a ModLens handoff on the verified collapsed Code Mode path, include every accessible absolute image path and the bounded visual objective, then use this compact block:
+A top-level `run_code` is expected on collapsed Code Mode; registered tools run inside it through the injected SDK. Include the image paths and bounded objective with this handoff:
 
 ```text
 Use DSH Code Mode for this visual task. Call run_code, and inside that program use the injected tools SDK capability tools.modlens_read_image for these absolute image paths: <paths>. Base the answer only on the returned ModLens evidence. Do not use shell commands, direct filesystem or network code, browser tools, OCR libraries, or Python image libraries. If the SDK capability is absent or the nested call fails, report the exact underlying error and stop.
 ```
 
-Do not bypass ModLens with shell, direct filesystem or network code, browsers, OCR, or image libraries. Do not forbid `run_code` when it is the verified transport. If the SDK capability is absent or the nested call fails, require the exact underlying error and stop.
+Keep ModLens work on that tool path. A top-level `run_code` followed by `tool/code-dispatch-start` means the program is active; one or two quiet wait windows are not a failure signal. Never use a locally documented nested-tool timeout as the outer delegation deadline. Wait for the nested result, exact underlying error, terminal failure or user cancellation. A `tool/result` followed by the requested final answer establishes completion.
 
-Supervise visual turns with repeated bounded `dsh_wait` calls and advance from `dsh_tail.nextCursor`. A top-level `run_code` followed by `tool/code-dispatch-start` means the Code Mode program is active; one or two quiet wait windows are not a failure signal. Continue normal user updates while the registered tool works. Never use a locally documented nested-tool timeout as the outer delegation deadline. Treat an exact nested timeout or tool error, a terminal task failure, or an explicit user cancellation as failure; treat `tool/result` followed by the requested final answer as success.
+## Compact handoff
 
-## Build a compact handoff
+Before `dsh_delegate` or a work-producing `dsh_followup`, summarize the objective, completed work/decisions, Git HEAD/status and changed paths, focus code/Markdown files, relevant tests, constraints and unresolved issues from known progress and read-only evidence.
 
-Before `dsh_delegate` or a work-producing `dsh_followup`, assemble a compact handoff from the current Codex task and read-only workspace evidence:
+Tell DSH to read the focus paths first and expand its search only if blocked. Never include secrets, credentials, raw large diffs, whole file bodies, caller chat or internal reasoning. The summary grants no additional filesystem access.
 
-- objective and bounded deliverable;
-- completed work and decisions already made;
-- Git HEAD, status, and changed paths when available;
-- focus code or Markdown paths;
-- relevant tests and their latest known state;
-- constraints, safety boundaries, unresolved issues, and expected verification.
+## Supervision
 
-Tell DSH to read the focus paths first and avoid a repository-wide scan unless blocked. Never include secrets, credentials, raw large diffs, whole file bodies, caller chat, or internal reasoning. Agentlink does not gain prior Codex conversation state or new filesystem authorization; the handoff is an explicit summary in the prompt.
+1. Use `dsh_host_status` when availability is unknown. The Runtime is connect-only: never start, stop, or restart DSH Desktop or the Web Host.
+2. New work uses `dsh_delegate` with the compact handoff and an existing absolute `cwd`. Same known work uses `dsh_followup(mode="queue")`; `mode="steer"` targets the active turn's next step.
+3. For an intended existing Desktop session, discover its metadata, check the exact idle root and attach before sending work.
+4. Observe with repeated bounded `dsh_wait`, advance `dsh_tail.nextCursor`, and use `dsh_status` for execution, availability, final message, queues and pending interactions. A wait window is not the task deadline; continue until a real terminal state, confirmed unreachable Host or required human action.
+5. Before mutations, retain the latest cursor/revision and pass supported freshness preconditions. On `stale_view`, inspect and reassess.
+6. Answer ordinary pending questions through `dsh_answer_question` with exact request/typed answers. Timed questions stay with the Host's human answerer; follow-up is not their answer channel.
+7. Approvals need a human decision for that exact request. Use `dsh_resolve_approval(..., outcome="allow_once")` only after approval; otherwise reject or stop.
+8. Cancel the intended scope. Prefer `dsh_cancel(scope="turn")`; queue cancellation needs a current snapshot and is non-atomic.
+9. After the work and follow-ups finish, use `dsh_release_workspace`. The DSH session remains open.
 
-## Run the supervised workflow
+## Workspace ownership and review
 
-1. Call `dsh_host_status` when Host availability is unknown. The bridge is connect-only: never start, stop, or restart DSH Desktop or the Web Host.
-2. For new work, call `dsh_delegate` with the compact handoff and an existing absolute `cwd`.
-3. For the same known BridgeTask, call `dsh_followup(mode="queue")`. Use `mode="steer"` only when guidance must enter the active turn's next step.
-4. When the user explicitly identifies an existing DSH Desktop session, call `dsh_find_sessions`, require one intended idle root result, then call `dsh_attach_session` with the exact returned `sessionId`, `updatedAt`, `cwd`, and title preconditions. Attachment alone must not prompt or change the model; send work separately with `dsh_followup`.
-5. Observe with bounded `dsh_wait` calls and continue from `dsh_tail.nextCursor`. Use `dsh_status` to inspect availability, execution, queue, final message, workspace claim, and pending interactions. For ModLens work on a verified collapsed Code Mode Host, apply the visual supervision rules above.
-6. Before mutations, retain the latest task cursor and connection revision and pass the supported freshness preconditions. On `stale_view`, inspect the changes and reassess instead of blindly retrying.
-7. Answer a pending question only through `dsh_answer_question` using the exact request id and typed answers. Do not use follow-up as an answer channel.
-8. Treat every approval as a human-gated sandbox escalation. Never auto-approve. Call `dsh_resolve_approval(..., outcome="allow_once")` only after the user approves that exact request; otherwise reject or stop.
-9. Cancel only the intended scope. Prefer `dsh_cancel(scope="turn")`; use queue cancellation only with a current queue snapshot and treat it as non-atomic.
-10. When collaboration is complete, call `dsh_release_workspace`. Releasing the claim does not close the DSH session.
+Use `exclusive-write` for edits, preferably in an isolated Git worktree. While DSH holds that claim, Codex must not edit the same cwd. A `read-only` claim is cooperative coordination; DSH's own permissions enforce filesystem access. Manual Desktop/editor/shell work or another bridge home can still race with the task, so refresh status after user interaction.
 
-## Coordinate workspace access
+Agentlink communicates through the Host; session visibility in Desktop is a separate UI observation.
 
-- Use the default `exclusive-write` bridge claim for tasks that may edit files, preferably in a dedicated Git worktree.
-- Use `read-only` only for analysis or review tasks, while remembering it is a cooperative Agentlink claim rather than a DSH filesystem sandbox.
-- While DSH holds `exclusive-write`, Codex must not edit the same cwd. Warn that manual DSH Desktop, editor, shell, or another bridge-home activity is outside claim enforcement and can race with the supervised task.
-- Preserve the latest cursor and revision if the user interacts with the same DSH session. Re-read status before issuing another mutation.
-- The session can remain visible in DSH Desktop, but Agentlink communicates through the Web Host and does not operate the Desktop GUI.
+After DSH completes, Codex independently reviews the diff and relevant files, verifies proportionate tests and checks the original requirements. Send bounded corrections through the same task when needed. Report unresolved failures, routing side effects, pending interactions and manual steps before final acceptance.
 
-## Review and accept
-
-After DSH reports completion, Codex independently reviews the produced diff and relevant files, runs or verifies proportionate tests, checks the work against the original requirements, and sends bounded follow-up corrections when necessary. Report unresolved failures, routing side effects, pending interactions, and any manual steps. Accept the task only after Codex's own verification passes.
-
-Stop and report rather than improvising when the Host is unreachable, the task/session identity is unknown, a catalog route or effort is unavailable, content is unavailable, a cursor gap cannot be recovered, an approval needs human judgment, or safe workspace ownership cannot be established.
+Stop for missing identity, unsupported capabilities, unrecoverable cursor gaps or unresolved workspace ownership. Keep DSH profiles, authentication, permissions, plugins and network settings unchanged during orchestration.

@@ -65,6 +65,36 @@ test("config enables opt-in Desktop discovery while an explicit Host URL remains
   assert.throws(() => loadConfig({ ...base, DSH_HOST_MODE: "scan-all-ports" }), /DSH_HOST_MODE/);
 });
 
+test("official Gateway is opt-in and doctor never creates an authenticated API Peer", async () => {
+  const home = await makeHome();
+  try {
+    const config = loadConfig({ DSH_BRIDGE_HOME: home, DSH_HOST_PROTOCOL: "gateway", DSH_HOST_MODE: "desktop-auto",
+      DSH_CONNECT_TOKEN_ENV: "TEST_OPERATOR_CONNECT_TOKEN", TEST_OPERATOR_CONNECT_TOKEN: "synthetic-secret" });
+    assert.equal(config.hostProtocol, "gateway");
+    assert.equal(config.connectTokenEnv, "TEST_OPERATOR_CONNECT_TOKEN");
+    assert.equal(JSON.stringify(config).includes("synthetic-secret"), false);
+    const api = new FakeDshApi();
+    const report = await runDoctor(config, api, async () => undefined);
+    assert.equal(api.calls.length, 0);
+    assert.equal(report.ok, false);
+    assert.equal(report.availability, "not_probed");
+    assert.throws(() => loadConfig({ DSH_HOST_PROTOCOL: "guess" }), /DSH_HOST_PROTOCOL/);
+    assert.throws(() => loadConfig({ DSH_CONNECT_TOKEN_ENV: "bad name" }), /DSH_CONNECT_TOKEN_ENV/);
+    assert.equal(loadConfig({}).hostProtocol, "legacy");
+  } finally { await fs.rm(home, { recursive: true, force: true }); }
+});
+
+test("Gateway config carries only an origin binding, never the authorization itself", () => {
+  const config = loadConfig({ DSH_HOST_PROTOCOL: "gateway", DSH_HOST_MODE: "desktop-auto",
+    DSH_CONNECT_ORIGIN: "http://127.0.0.1:45678", DSH_CONNECT_TOKEN: "synthetic-secret" });
+  assert.equal(config.connectTokenOrigin, "http://127.0.0.1:45678");
+  assert.equal(config.hostMode, "desktop-auto");
+  assert.equal(config.hostUrl, "http://127.0.0.1:3080");
+  assert.equal(JSON.stringify(config).includes("synthetic-secret"), false);
+  assert.throws(() => loadConfig({ DSH_HOST_PROTOCOL: "gateway", DSH_CONNECT_ORIGIN: "http://127.0.0.1/?token=synthetic-secret" }),
+    (error) => error instanceof Error && !error.message.includes("synthetic-secret"));
+});
+
 test("doctor separates CLI and host product versions and capability-probes without writes", async () => {
   const api = new FakeDshApi();
   api.description = { version: "0.0.1", cwd: "/tmp", attachedSessions: 0, canOpenPath: true };
