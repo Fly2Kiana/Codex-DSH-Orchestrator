@@ -19,13 +19,32 @@ Tests use synthetic Hosts and inert caller fixtures. They cover MCP schemas, aut
 
 | Area | Evidence | Remaining check |
 | --- | --- | --- |
-| Gateway inbox repair `26f22a5` | Windows Node 26.7.0: build and 295/295 tests; exact-build CI passed all nine Ubuntu/Windows/macOS x Node 22/24/26 jobs | Requalify subsequent candidate changes |
-| Official Windows Desktop | Operator-controlled native pipe opened the official Codex GUI; repaired bridge connected through owned-listener discovery and Gateway admission | Final-candidate task and same-root follow-up; old task reconciliation still reports a historical lock warning |
-| Apple Silicon | Earlier official-adapter installation on Node 24.20.0 passed connection and one inherited read-only task; files unchanged and claim released | Reinstall/retest the final dependency tree, record actual app/core versions and same-root follow-up |
+| Runtime source `85fd145` | Windows Node 26.7.0: build and 298/298 tests; Mac Node 24.20.0: build, 297 passed and one Windows-only skip; all nine Ubuntu/Windows/macOS x Node 22/24/26 CI jobs passed; 119 expected package entries | A later documentation-only commit has not yet run remote CI; no runtime or dependency change is included in that refresh |
+| Official Windows Desktop, 2026-10-26 | Native startup, owned-listener discovery and Gateway admission; one inherited read-only task plus same-root follow-up completed; fixture unchanged and claim released | Historical task reconciliation retains an unrelated lock warning; Desktop session visibility and original pinned-icon grouping were not qualified |
+| Apple Silicon Mac, 2026-10-27 | Controlled-start `85fd145`, Gateway admission and one inherited read-only task plus same-root follow-up completed; fixture unchanged and final claim released | Intel live parity and Desktop session visibility remain unverified; first reply included one extra confirmation sentence |
 | rc.3 contract | Scoped source comparison plus synthetic dynamic-catalog, effort and rejection regressions | Real rc.3 account/catalog availability |
 | Vision/ModLens | Automated route policy and failure behavior | Current provider/tool execution and visual completion |
 
-The earlier Mac smoke did not re-sample actual Codex/Desktop/core versions or record manual GUI session visibility. Its success applies to that earlier build. The CI matrix also leaves Intel/Apple Silicon live parity, GUI environment inheritance and filesystem crash behavior for platform acceptance.
+The qualified runtime source is `85fd1451d4c8ac1e3234e4ec8237f49d58545e97`, tree `3c48cefe7f9511b512369e36b6dbe9a69ba27cf2`. Windows exercised installed `26f22a5807e374ffa1de761644b19dde84aac9e1`: all 93 built runtime files were byte-identical to `85fd145`, with the same lockfile and canonical Skill. Mac exercised the exact `85fd145` installation. Subsequent publication-document changes do not change those runtime identities.
+
+Recorded environments:
+
+| Component | Windows | Apple Silicon Mac |
+| --- | --- | --- |
+| Node / npm | 26.7.0 x64 / 11.19.0 | 24.20.0 arm64 / 11.19.0 |
+| Codex app metadata | OpenAI.Codex 26.1021.3705.0 | 26.1021.31345, bundle build 21828 |
+| Official Desktop bundle | 0.2.1-rc.2 | 0.2.1-rc.2 |
+| Packaged core metadata | 0.2.1-rc.2 | Not independently sampled |
+
+These are recorded installation metadata, not guarantees about later automatic updates. Mac hardware/OS were reported as M5 Max and macOS 26.5.1. A wire-reference label does not establish the running core version.
+
+Both smokes used `inherit` and reported `deepseek-official/deepseek-flash/high` with `persistsAsDshDefault=false`. No unexpected model selection, visual fallback, pending interaction or automatic approval occurred. Source, build, configuration and Skill stayed unchanged. Two prompts were submitted per qualified run; provider-internal inference counts, billing and cache hits were not exposed.
+
+On Mac, the first answer correctly described the manifest but added a confirmation sentence beyond the requested three lines. After an early claim release, one metadata lookup and an exact-root read-only attach reacquired that same mapping without a prompt or model selection. The single follow-up completed on the original root. This qualifies communication and read-only continuation, not exact-format compliance. Earlier Mac attempts retaining a pre-installation connection are excluded from the alpha.6 evidence.
+
+The Mac user observed one original Dock icon; Windows direct startup showed a separate taskbar group. Manual Desktop session visibility, Intel live parity, filesystem crash behavior, current visual providers and broader question/approval/cancel flows remain outside these smokes.
+
+Private Review CI covered the exact runtime source; CodeQL was unavailable because code scanning was not enabled there. The later public candidate still needs its applicable CI/CodeQL review.
 
 ## Visual routing validation
 
@@ -70,6 +89,8 @@ The startup handoff launches applications. Schedule downtime, finish active work
 2. Verify MCP points at that candidate's built entry and that one `dsh_agentlink` is loaded.
 3. Confirm the Skill selector/explicit invocation loads the canonical content.
 4. Confirm unrelated MCP/Skill configuration and the source tree remain intact.
+
+After replacement, a reconnect timestamp alone cannot prove new code loaded: an older process can reconnect after sleep. Verify the effective entry point, fixed build files, startup context and new caller process together. A retained pre-installation connection does not qualify the replacement build.
 
 Repeat this after moving a checkout, changing Node or replacing an installation.
 

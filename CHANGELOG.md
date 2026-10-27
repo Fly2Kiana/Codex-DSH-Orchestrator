@@ -13,12 +13,15 @@ does not announce an npm publication.
   and current Flash catalog routing with account/API-key separation.
 - Updated MCP SDK to 1.32.0 and Zod to 4.6.7, with scoped transitive security
   updates and the required Gateway record-schema migration.
-- Added rc.3 catalog refresh, effort and rejection regressions; the Windows
-  Node 26.7.0 source gate passes 293 tests. CI is defined for Node 22/24/26
-  on Ubuntu, Windows and macOS.
+- Added rc.3 catalog refresh, effort and rejection regressions, bounded
+  observation-inbox backpressure and a native Windows startup pipe.
+- The runtime candidate passed 298 Windows tests and all nine CI jobs on
+  Ubuntu/Windows/macOS with Node 22/24/26. The Mac local check passed 297 tests
+  with one Windows-only test skipped.
 - Updated bilingual setup/Skill guidance and operator startup instructions.
-  The earlier Apple Silicon read-only smoke covers an older adapter build;
-  final-candidate Windows/Mac live acceptance and current vision execution remain pending.
+  Windows and Apple Silicon Mac completed inherited read-only tasks and
+  same-root follow-ups. Current vision execution and a real rc.3 product run
+  remain unverified; see the validation guide for exact build evidence.
 
 ## 0.1.0-alpha.5 — source release
 

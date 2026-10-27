@@ -2,11 +2,21 @@
 
 ## Official Desktop qualification
 
-The authenticated Gateway has Windows/macOS discovery and startup-handoff support. Current local automated evidence is 293 tests on Windows Node 26.7.0. An earlier Apple Silicon build passed connection and one inherited read-only task; the final dependency tree still needs Windows/Mac live acceptance and same-root follow-up.
+The authenticated Gateway has Windows/macOS discovery and startup-handoff support. Runtime candidate `85fd145` passed 298 local Windows tests, 297 local Mac tests with one Windows-only skip, and all nine CI jobs. Both platforms completed one inherited read-only task and same-root follow-up. See [Validation](docs/validation.md) for the build identities and observed environments. Intel Mac and a real rc.3 product run remain unverified.
 
 Gateway doctor leaves admission `not_probed`. A separately approved `dsh_host_status` can exchange authorization and open an API Peer. After changing the installation, confirm the actual MCP entry and Skill content before a smoke test.
 
 The current rc.3 session catalog omits image modalities. Native vision therefore needs additional capability evidence. Timed questions remain with the Host, subagent-mode discovery is unavailable, and queue refresh relies on explicit observation/preflight. See [Gateway capabilities](docs/official-desktop-gateway.md#models-and-capabilities).
+
+### Startup terminal and application icons
+
+Keep the controlled-start terminal open. A fresh launch from an ordinary pinned shortcut or Dock entry does not receive that pipeline's temporary authorization. Restoring bridge access then requires another approved controlled start.
+
+Direct executable startup produced a separate Windows taskbar group in the tested installation. The existing pinned shortcut was not changed; its grouping has not been corrected or qualified. The tested Mac launch retained one Dock icon. Neither observation guarantees another installation's icon behavior.
+
+### Historical task lock warning
+
+The Windows smoke still reported a lock warning while reconciling an unrelated historical task. The new task, follow-up and claim release completed. Existing locks and mappings were retained; new-session success does not establish recovery of that older task. Use the lock diagnostics below before planning any cleanup.
 
 ## Shared-ledger duplicate cursor
 

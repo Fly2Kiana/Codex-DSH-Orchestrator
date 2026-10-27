@@ -31,6 +31,8 @@ Record the SHA/tree, resolved dependency versions, build/test counts, package in
 
 Require that exact candidate's CI on Ubuntu, Windows and macOS with Node 22/24/26, plus applicable CodeQL review. Separate these results from historical CI and previously accepted test-only findings.
 
+The alpha.6 runtime source `85fd145` has that nine-job CI evidence and the Windows/Mac minimal live evidence in [Validation](validation.md). A later documentation-only publication commit still needs its own remote CI result after an approved push. Private Review CodeQL was unavailable; retain that limitation until the public candidate receives its applicable review.
+
 ## Same-candidate Windows/Mac acceptance
 
 Follow [Validation](validation.md) on each platform:

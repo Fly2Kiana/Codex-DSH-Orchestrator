@@ -152,9 +152,9 @@ The bridge carries text and DSH-accessible local image paths. On the previously 
 
 ## Validation and rollback
 
-A previous Apple Silicon installation completed connection admission and one inherited read-only task on the earlier official adapter build. Windows completed native-pipe startup and connection-only Gateway admission on build `26f22a5`, after the bounded event-inbox repair. That build passed 295 tests locally and all nine Ubuntu/Windows/macOS x Node 22/24/26 CI jobs. A historical task-lock warning remains; it is not a connection pass for old task reconciliation.
+Runtime candidate `85fd145` passed all nine Ubuntu/Windows/macOS x Node 22/24/26 CI jobs and the local Windows 298-test gate. Mac's local check passed 297 tests with one Windows-only skip. Windows exercised `26f22a5` with all 93 built runtime files byte-identical to the candidate; Mac exercised the exact `85fd145` controlled-start installation.
 
-The bundled Windows pipe and output filter have synthetic regression tests. Final same-candidate Windows/macOS tasks and same-root follow-ups remain pending; connection admission sends no model request. See [Validation](validation.md) for the evidence boundaries.
+Both platforms completed one inherited read-only task and same-root follow-up, with unchanged fixture/configuration/Skill and released claims. Mac retained one Dock icon; Windows taskbar grouping remains a known limitation. An unrelated historical Windows task-lock warning was preserved. Current vision execution, real rc.3 product behavior and manual Desktop session visibility remain unverified. See [Validation](validation.md) for exact environments and the Mac output-format/claim-recovery notes.
 
 Preserve the old checkout and installer backups. Before rollback, review subsequent edits, restore only the intended MCP/Skill content and relaunch during an agreed window. Leave DSH configuration and active tasks untouched during preparation.
 
