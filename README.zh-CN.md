@@ -22,7 +22,7 @@ connect-only MCP 注册名为 `dsh_agentlink`，连接由用户管理的 DSH Hos
 | 已知 origin 的官方 Gateway | `--gateway --host <origin> --no-preset` |
 | 旧 rc.6 Web Host 或 Windows 社区 Desktop | 参见[旧版配置](docs/manual-configuration.zh-CN.md#旧版-host) |
 
-当前为支持官方 Desktop 的 `0.1.0-alpha.6` 发布候选，尚未发布。Windows 和 Apple Silicon Mac 均已完成继承当前模型的只读任务及同会话 follow-up。运行时代码通过了 Ubuntu、Windows、macOS 与 Node 22/24/26 的全部九项 CI。[验证记录](docs/validation.md)列出实测版本、环境和仍待验证的能力。
+本源码快照版本为 `0.1.0-alpha.6`，包含 Windows 和 macOS 官方 Desktop 支持。Windows 与 Apple Silicon Mac 均已完成继承当前模型的只读任务及同会话 follow-up。源码通过了 Ubuntu、Windows、macOS 与 Node 22/24/26 的全部九项 CI，以及公开 CodeQL 和维护者作者检查。[验证记录](docs/validation.md)列出实测版本和仍待验证的能力；已发布标签及版本包以 [Releases](https://github.com/Fly2Kiana/Codex-DSH-Orchestrator/releases) 记录为准。
 
 ### 推荐：复制给 Agent 的安装 Prompt
 

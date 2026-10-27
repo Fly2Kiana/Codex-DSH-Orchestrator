@@ -2,7 +2,7 @@
 
 ## Official Desktop qualification
 
-The authenticated Gateway has Windows/macOS discovery and startup-handoff support. Runtime candidate `85fd145` passed 298 local Windows tests, 297 local Mac tests with one Windows-only skip, and all nine CI jobs. Both platforms completed one inherited read-only task and same-root follow-up. See [Validation](docs/validation.md) for the build identities and observed environments. Intel Mac and a real rc.3 product run remain unverified.
+The authenticated Gateway has Windows/macOS discovery and startup-handoff support. Both platforms completed one inherited read-only task and same-root follow-up. [Validation](docs/validation.md) separates the exercised runtime builds from the later source CI, CodeQL and author-policy evidence. Intel Mac and a real rc.3 product run remain unverified.
 
 Gateway doctor leaves admission `not_probed`. A separately approved `dsh_host_status` can exchange authorization and open an API Peer. After changing the installation, confirm the actual MCP entry and Skill content before a smoke test.
 

@@ -152,7 +152,7 @@ The bridge carries text and DSH-accessible local image paths. On the previously 
 
 ## Validation and rollback
 
-Runtime candidate `85fd145` passed all nine Ubuntu/Windows/macOS x Node 22/24/26 CI jobs and the local Windows 298-test gate. Mac's local check passed 297 tests with one Windows-only skip. Windows exercised `26f22a5` with all 93 built runtime files byte-identical to the candidate; Mac exercised the exact `85fd145` controlled-start installation.
+Windows exercised `26f22a5` with all 93 built runtime files byte-identical to qualified runtime source `85fd145`; Mac exercised the exact `85fd145` controlled-start installation. The later maintainer-author changes preserve that runtime and dependency tree. [Validation](validation.md) records the runtime checks and the completed source CI/CodeQL gate.
 
 Both platforms completed one inherited read-only task and same-root follow-up, with unchanged fixture/configuration/Skill and released claims. Mac retained one Dock icon; Windows taskbar grouping remains a known limitation. An unrelated historical Windows task-lock warning was preserved. Current vision execution, real rc.3 product behavior and manual Desktop session visibility remain unverified. See [Validation](validation.md) for exact environments and the Mac output-format/claim-recovery notes.
 

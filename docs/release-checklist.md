@@ -31,7 +31,7 @@ Record the SHA/tree, resolved dependency versions, build/test counts, package in
 
 Require that exact candidate's CI on Ubuntu, Windows and macOS with Node 22/24/26, plus applicable CodeQL review. Separate these results from historical CI and previously accepted test-only findings.
 
-The alpha.6 runtime source `85fd145` has that nine-job CI evidence and the Windows/Mac minimal live evidence in [Validation](validation.md). A later documentation-only publication commit still needs its own remote CI result after an approved push. Private Review CodeQL was unavailable; retain that limitation until the public candidate receives its applicable review.
+The alpha.6 runtime source `85fd145` has the Windows/Mac minimal live evidence in [Validation](validation.md). Public source `89bdd59` also passed nine-job CI, both CodeQL analyses and its author-policy check. For subsequent documentation-only commits, record their own GitHub checks without repeating unchanged runtime qualification. Private Review snapshots use their CI results; they do not replace the public CodeQL evidence.
 
 ## Same-candidate Windows/Mac acceptance
 
@@ -50,6 +50,7 @@ Native vision, ModLens, extra callers or broader interaction tests require their
 
 - Keep Host lifecycle, login, permissions and provider credentials with the operator. Retain human approval for escalation and explicit review before model-default changes.
 - Explain installer replacements, restart requirements, Skill scope, authorization lifetime and rollback.
+- Use the approved maintainer identity and squash-only PR path. Keep the required author status and existing CI/CodeQL protection in place.
 - Record implemented capabilities and remaining gaps without promoting a protocol reference or operator declaration into a verified product version.
 - Review the final public diff and reachable history before requesting approval to push, open/merge a PR, create a tag or publish a release.
 - After approved publication, inspect the landing page, links, release notes and source archive from a clean user-facing view.

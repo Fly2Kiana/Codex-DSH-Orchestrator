@@ -19,7 +19,8 @@ Tests use synthetic Hosts and inert caller fixtures. They cover MCP schemas, aut
 
 | Area | Evidence | Remaining check |
 | --- | --- | --- |
-| Runtime source `85fd145` | Windows Node 26.7.0: build and 298/298 tests; Mac Node 24.20.0: build, 297 passed and one Windows-only skip; all nine Ubuntu/Windows/macOS x Node 22/24/26 CI jobs passed; 119 expected package entries | A later documentation-only commit has not yet run remote CI; no runtime or dependency change is included in that refresh |
+| Runtime source `85fd145` | Windows Node 26.7.0: build and 298/298 tests; Mac Node 24.20.0: build, 297 passed and one Windows-only skip; all nine Ubuntu/Windows/macOS x Node 22/24/26 CI jobs passed; 119 expected package entries | Later author-policy and documentation changes preserve the exercised runtime and dependency tree |
+| Public source `89bdd59`, 2026-10-27 | Nine CI jobs passed; Windows 308/308, Ubuntu/macOS 307 passed with one Windows-only skip; 119 package entries; both CodeQL analyses had zero results; main author check passed | Record subsequent source revisions through their own GitHub checks |
 | Official Windows Desktop, 2026-10-26 | Native startup, owned-listener discovery and Gateway admission; one inherited read-only task plus same-root follow-up completed; fixture unchanged and claim released | Historical task reconciliation retains an unrelated lock warning; Desktop session visibility and original pinned-icon grouping were not qualified |
 | Apple Silicon Mac, 2026-10-27 | Controlled-start `85fd145`, Gateway admission and one inherited read-only task plus same-root follow-up completed; fixture unchanged and final claim released | Intel live parity and Desktop session visibility remain unverified; first reply included one extra confirmation sentence |
 | rc.3 contract | Scoped source comparison plus synthetic dynamic-catalog, effort and rejection regressions | Real rc.3 account/catalog availability |
@@ -44,7 +45,13 @@ On Mac, the first answer correctly described the manifest but added a confirmati
 
 The Mac user observed one original Dock icon; Windows direct startup showed a separate taskbar group. Manual Desktop session visibility, Intel live parity, filesystem crash behavior, current visual providers and broader question/approval/cancel flows remain outside these smokes.
 
-Private Review CI covered the exact runtime source; CodeQL was unavailable because code scanning was not enabled there. The later public candidate still needs its applicable CI/CodeQL review.
+Public source `89bdd594d8b76f45de7c236e432d188666644748` passed [CI](https://github.com/Fly2Kiana/Codex-DSH-Orchestrator/actions/runs/40496150696), [CodeQL](https://github.com/Fly2Kiana/Codex-DSH-Orchestrator/actions/runs/40496151155) and the [maintainer-author check](https://github.com/Fly2Kiana/Codex-DSH-Orchestrator/actions/runs/40496150865). Its ten additional tests cover author identity and coauthor policy; its runtime, dependencies and Skill remain those qualified above. Later documentation-only revisions use their GitHub checks for the final source result.
+
+Private Review CI is recorded separately. Code scanning was unavailable in that repository; a private snapshot's CI result does not substitute for the public CodeQL analysis.
+
+### Maintainer-author gate
+
+Ten regression tests cover the canonical account/noreply identity, spoofed names or account IDs, bot authors, incomplete metadata and coauthor trailers. A temporary PR also verified the live required status: approved maintainer metadata reached `CLEAN`; an unauthorized-author fixture reached `BLOCKED` while ordinary CI and CodeQL remained green. The PR was closed without merge and its branch removed. The [contribution policy](../CONTRIBUTING.md#pull-requests) records the owner's approval requirement and trusted-base workflow boundary.
 
 ## Visual routing validation
 

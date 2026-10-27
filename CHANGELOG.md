@@ -4,7 +4,9 @@ This file records user-visible changes to Codex-DSH-Orchestrator. The project
 is distributed as source code; `package.json` remains private and this file
 does not announce an npm publication.
 
-## 0.1.0-alpha.6 — release candidate
+## 0.1.0-alpha.6
+
+Source snapshot. See [Releases](https://github.com/Fly2Kiana/Codex-DSH-Orchestrator/releases) for published tags and release artifacts.
 
 - Added an opt-in authenticated official Desktop Gateway adapter with owned
   loopback discovery on Windows and macOS, in-memory startup authorization,
@@ -15,9 +17,11 @@ does not announce an npm publication.
   updates and the required Gateway record-schema migration.
 - Added rc.3 catalog refresh, effort and rejection regressions, bounded
   observation-inbox backpressure and a native Windows startup pipe.
-- The runtime candidate passed 298 Windows tests and all nine CI jobs on
-  Ubuntu/Windows/macOS with Node 22/24/26. The Mac local check passed 297 tests
-  with one Windows-only test skipped.
+- The qualified source passed 308 Windows tests, including ten maintainer-author
+  regressions. Ubuntu/macOS passed 307 with one Windows-only test skipped.
+  All nine Node 22/24/26 CI jobs and both public CodeQL analyses passed.
+- Added maintainer-attribution checks for PRs/main and contribution guidance
+  for reintegrating reviewed bot updates with their original PR provenance.
 - Updated bilingual setup/Skill guidance and operator startup instructions.
   Windows and Apple Silicon Mac completed inherited read-only tasks and
   same-root follow-ups. Current vision execution and a real rc.3 product run

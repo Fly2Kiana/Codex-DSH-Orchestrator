@@ -22,7 +22,7 @@ Requirements: Node.js 22+, npm, Git, Codex and the official DeepSeek Harness Des
 | Official Gateway at a known origin | `--gateway --host <origin> --no-preset` |
 | Legacy rc.6 Web Host or community Windows Desktop | Use the [legacy configuration](docs/manual-configuration.md#legacy-host) |
 
-This checkout is the `0.1.0-alpha.6` release candidate for official Desktop support. It has not been released. Windows and Apple Silicon Mac have completed an inherited, read-only task and same-session follow-up. The runtime source passed all nine Ubuntu/Windows/macOS CI jobs on Node 22/24/26. [Validation](docs/validation.md) records the tested builds, environments and remaining limits.
+This `0.1.0-alpha.6` source snapshot includes official Desktop support on Windows and macOS. Both Windows and Apple Silicon Mac completed an inherited read-only task and same-session follow-up. Source CI covers all nine Ubuntu/Windows/macOS and Node 22/24/26 combinations; public CodeQL and the maintainer-author gate also passed. [Validation](docs/validation.md) records the tested builds and remaining limits. Published tags and release artifacts are listed on [Releases](https://github.com/Fly2Kiana/Codex-DSH-Orchestrator/releases).
 
 ### Recommended: copy/paste the Agent installation prompt
 
