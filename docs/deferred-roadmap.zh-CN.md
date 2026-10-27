@@ -10,7 +10,7 @@
 
 复用能减少重复读取，也可能增加保留上下文的输入量。没有文档化聚合 cached-token 遥测时，保持 `providerCacheEvidence=not_exposed`。
 
-[验证记录](validation.md)包含自动测试和此前 Apple Silicon 只读 smoke。最终候选双端真实验收属于发布收口，不需要再开发一套传输。
+[验证记录](validation.md)包含已完成的 Windows、Apple Silicon Mac 只读任务与同会话 follow-up，以及源码 CI、CodeQL 和作者策略证据。真实 rc.3 产品、Intel Mac 及扩展视觉/交互测试仍需单独安排。
 
 ## 暂缓项目
 
@@ -27,7 +27,7 @@
 | ModLens 韧性与数据出域 | 先选上游贡献或 fork，再批准 timeout 透传、结构化 `nextSteps`、保真度/降采样取舍及第二 provider 的凭据、成本与数据策略。 |
 | Gateway 能力缺口 | Host 提供可信 wire 契约后，再做图片模态发现、定时问题所有权或 subagent-mode 发现。仅有 provider callback 源码还不够。 |
 
-跨工作树/新机器加固及公开 tree/history 审查仍是发布检查项，安装器可移植性测试不能代替最终候选的真实运行验收。
+更换电脑、运行时或依赖后，重新执行相关可移植性与验收检查。发布前审阅最终文件树和历史；现有 Win/Mac 证据适用于记录中的实测版本与环境。
 
 ## 运行边界
 
