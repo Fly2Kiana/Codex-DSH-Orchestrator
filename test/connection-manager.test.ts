@@ -9,7 +9,7 @@ import { WebSocket } from "ws";
 import type { BridgeConfig } from "../src/config.js";
 import { DshConnectionManager, PendingInteractionError } from "../src/connection-manager.js";
 import { BridgeCapabilityError, BridgeService } from "../src/bridge-service.js";
-import { DshClient } from "../src/dsh-client.js";
+import { DshClient, DshTransportError } from "../src/dsh-client.js";
 import type { DshMuxFrame, DshServerRequest } from "../src/dsh-types.js";
 import { EventLedger } from "../src/event-ledger.js";
 import { GatewayConnectionError } from "../src/gateway-connection.js";
@@ -54,6 +54,92 @@ function deferred() {
   });
   return { promise, resolve };
 }
+
+type InitialHistoryManager = {
+  snapshot(): { availability: string; capabilities: { historyReconciliation: boolean } };
+  reconcileTask(taskId: string): Promise<void>;
+};
+
+async function reconcileInitialHistory(manager: InitialHistoryManager, taskId: string, timeoutMs = 5_000): Promise<void> {
+  const startedAt = Date.now();
+  let stage = "connection";
+  let active = true;
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  let pause: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    deadline = setTimeout(() => reject(new Error(`initial history recovery timed out after ${timeoutMs}ms`)), timeoutMs);
+  });
+  const recovery = (async () => {
+    while (manager.snapshot().availability !== "connected") {
+      if (!active) return;
+      await new Promise<void>((resolve) => { pause = setTimeout(resolve, 10); });
+    }
+    if (!active) return;
+    stage = "reconciliation";
+    await manager.reconcileTask(taskId);
+  })();
+  try {
+    await Promise.race([recovery, expired]);
+  } catch (cause) {
+    const state = manager.snapshot();
+    throw new Error(
+      `Initial history recovery failed: stage=${stage}; availability=${state.availability}; ` +
+      `historyReady=${state.capabilities.historyReconciliation}; elapsedMs=${Date.now() - startedAt}`,
+      { cause },
+    );
+  } finally {
+    active = false;
+    clearTimeout(deadline);
+    clearTimeout(pause);
+  }
+}
+
+test("initial history wait awaits reconciliation before returning", async () => {
+  const history = deferred();
+  let requestedTask: string | undefined;
+  let completed = false;
+  const pending = reconcileInitialHistory({
+    snapshot: () => ({ availability: "connected", capabilities: { historyReconciliation: false } }),
+    reconcileTask: (taskId) => { requestedTask = taskId; return history.promise; },
+  }, "fixture-task").then(() => { completed = true; });
+  await Promise.resolve();
+  assert.equal(requestedTask, "fixture-task");
+  assert.equal(completed, false);
+  history.resolve();
+  await pending;
+  assert.equal(completed, true);
+});
+
+test("initial history wait reports the recovery stage and preserves the transport error", async () => {
+  const failure = new DshTransportError("synthetic history RPC failure");
+  await assert.rejects(reconcileInitialHistory({
+    snapshot: () => ({ availability: "connected", capabilities: { historyReconciliation: false } }),
+    reconcileTask: async () => { throw failure; },
+  }, "fixture-task"), (error: unknown) => {
+    assert(error instanceof Error);
+    assert.equal(error.cause, failure);
+    assert.match(error.message, /stage=reconciliation; availability=connected; historyReady=false; elapsedMs=\d+/);
+    return true;
+  });
+});
+
+test("initial history wait bounds stalled connection and reconciliation", async () => {
+  for (const stage of ["connection", "reconciliation"]) {
+    let recoveryCalls = 0;
+    await assert.rejects(reconcileInitialHistory({
+      snapshot: () => ({ availability: stage === "connection" ? "connecting" : "connected",
+        capabilities: { historyReconciliation: false } }),
+      reconcileTask: () => { recoveryCalls += 1; return new Promise<void>(() => {}); },
+    }, "fixture-task", 25), (error: unknown) => {
+      assert(error instanceof Error);
+      assert.match(error.message, new RegExp(`stage=${stage};`));
+      assert(error.cause instanceof Error);
+      assert.match(error.cause.message, /timed out after 25ms/);
+      return true;
+    });
+    assert.equal(recoveryCalls, stage === "connection" ? 0 : 1);
+  }
+});
 
 test("connection snapshots expose safe Gateway diagnostics and clear them after a new outcome", async () => {
   const home = await mkdtemp(join(tmpdir(), "codex-dsh-manager-diagnostic-"));
@@ -889,8 +975,9 @@ test("high-frequency assistant content-stream progress is dropped from the persi
   const manager = new DshConnectionManager(config(host, home), client(host), tasks, ledger, { reconnectDelayMs: 100 });
   manager.start();
   try {
-    await eventually(async () => (await ledger.snapshot(task.taskId)).execution === "turn_completed");
+    await reconcileInitialHistory(manager, task.taskId);
     const afterReconcile = await ledger.snapshot(task.taskId);
+    assert.equal(afterReconcile.execution, "turn_completed");
     assert.deepEqual(afterReconcile.finalMessagePointer, { sessionId: "root-session", seq: 3 + HISTORY_CHUNKS });
     assert.equal(afterReconcile.watermarks["root-session"], 4 + HISTORY_CHUNKS);
     assert.equal(afterReconcile.cursor, 5);
